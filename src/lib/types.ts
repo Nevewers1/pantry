@@ -21,6 +21,15 @@ export const LOCATIONS: { value: StorageLocation; label: string }[] = [
 ];
 
 // Common units offered as autocomplete suggestions (free text still allowed).
+// A single item detected from a photo, before the user confirms it.
+export type DetectedItem = {
+  name: string;
+  quantity: number;
+  unit: string;
+  category: string;
+  location: StorageLocation;
+};
+
 export const COMMON_UNITS = [
   "ea",
   "pack",

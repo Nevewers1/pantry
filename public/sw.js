@@ -1,79 +1,27 @@
-/* Pantry service worker — installable PWA with safe caching.
+/* Pantry service worker — SELF-DESTRUCT / KILL SWITCH.
  *
- * Strategy (revised to avoid stale-HTML-after-deploy blank screens):
- *  - Page navigations (HTML): NETWORK-FIRST. Always fetch the live page when
- *    online so a new deploy is picked up immediately; fall back to the last
- *    cached page only when the network is unavailable (in-store bad signal).
- *  - Static assets (JS/CSS/icons): stale-while-revalidate for speed.
- *  - Supabase / cross-origin / auth requests: never intercepted.
+ * A previous version cached page HTML too aggressively, which caused blank
+ * pages after each deploy. Offline support isn't needed until a later stage,
+ * so this worker now does one thing: on activation it deletes every cache,
+ * unregisters itself, and reloads any open pages so they load fresh from the
+ * network. Browsers that still have the old worker will pick THIS file up on
+ * their next visit and clean themselves up automatically — no manual reset.
  *
- * Bump CACHE when changing this file so old caches are purged on activate.
+ * When we reintroduce proper offline support (Step 8) it will use versioned,
+ * network-first caching so this can't recur.
  */
-const CACHE = "pantry-shell-v2";
-const PRECACHE = ["/manifest.json", "/icons/icon.svg"];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(PRECACHE))
-      .then(() => self.skipWaiting())
-  );
+self.addEventListener("install", () => {
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-      )
-      .then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  if (request.method !== "GET") return;
-
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return; // leave Supabase etc. alone
-  if (url.pathname.startsWith("/auth")) return;
-
-  const isNavigation =
-    request.mode === "navigate" ||
-    (request.headers.get("accept") || "").includes("text/html");
-
-  if (isNavigation) {
-    // Network-first: fresh page when online, cached page only as offline fallback.
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match("/");
-        })
-    );
-    return;
-  }
-
-  // Static assets: stale-while-revalidate.
-  event.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(request);
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            cache.put(request, response.clone());
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+      await self.registration.unregister();
+      const clients = await self.clients.matchAll({ type: "window" });
+      clients.forEach((client) => client.navigate(client.url));
+    })()
   );
 });

@@ -1,17 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { PantryItem, StorageLocation } from "@/lib/types";
+import type { DetectedItem, PantryItem, StorageLocation } from "@/lib/types";
 import { expiryLabel, formatQty } from "@/lib/format";
+import { fileToResizedBase64 } from "@/lib/image";
 import {
   ArrowLeftIcon,
   BoxIcon,
+  CameraIcon,
   MinusIcon,
   PlusIcon,
 } from "@/components/icons";
 import { ItemSheet } from "@/components/pantry/ItemSheet";
+import { ScanReview } from "@/components/pantry/ScanReview";
 
 type SortKey = "expiry" | "name" | "updated";
 type LocationFilter = "all" | StorageLocation;
@@ -30,6 +33,12 @@ export function PantryClient({
   const [sort, setSort] = useState<SortKey>("expiry");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<PantryItem | null>(null);
+
+  // Photo scan (Step 3)
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [detected, setDetected] = useState<DetectedItem[] | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -114,6 +123,37 @@ export function PantryClient({
     if (error) upsert(item); // revert on failure; realtime will also correct
   }
 
+  async function onPhotoChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+
+    setScanError(null);
+    setScanning(true);
+    try {
+      const { base64, mediaType } = await fileToResizedBase64(file);
+      const res = await fetch("/api/pantry/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mediaType }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setScanError(data?.error ?? "Scan failed. Try again.");
+        return;
+      }
+      if (!data.items?.length) {
+        setScanError("No items spotted in that photo. Try a clearer shot.");
+        return;
+      }
+      setDetected(data.items as DetectedItem[]);
+    } catch {
+      setScanError("Couldn't process that image.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 border-b border-border bg-bg/80 backdrop-blur">
@@ -130,20 +170,44 @@ export function PantryClient({
               Pantry
             </h1>
           </div>
-          <button
-            onClick={() => {
-              setEditing(null);
-              setSheetOpen(true);
-            }}
-            className="flex min-h-tap items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[14px] font-medium text-white hover:bg-brand-hover"
-          >
-            <PlusIcon className="h-4 w-4" />
-            Add
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+              className="flex min-h-tap items-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-[14px] font-medium text-ink hover:bg-bg disabled:opacity-50"
+            >
+              <CameraIcon className="h-4 w-4" />
+              {scanning ? "Scanning…" : "Scan"}
+            </button>
+            <button
+              onClick={() => {
+                setEditing(null);
+                setSheetOpen(true);
+              }}
+              className="flex min-h-tap items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[14px] font-medium text-white hover:bg-brand-hover"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Add
+            </button>
+          </div>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={onPhotoChosen}
+          className="hidden"
+        />
       </header>
 
       <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
+        {scanError && (
+          <div className="mb-4 rounded-xl border border-danger/30 bg-danger-tint px-4 py-3 text-sm text-danger">
+            {scanError}
+          </div>
+        )}
+
         {/* Filters */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex gap-1 rounded-xl bg-surface p-1">
@@ -214,6 +278,15 @@ export function PantryClient({
         onClose={() => setSheetOpen(false)}
         onUpsert={upsert}
         onRemove={remove}
+      />
+
+      <ScanReview
+        items={detected}
+        householdId={householdId}
+        userId={userId}
+        supabase={supabase}
+        onClose={() => setDetected(null)}
+        onAdded={(added) => added.forEach(upsert)}
       />
     </div>
   );
