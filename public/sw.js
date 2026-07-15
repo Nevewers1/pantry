@@ -1,18 +1,23 @@
-/* Pantry service worker — minimal, offline-tolerant reads (Build Brief §6.11).
+/* Pantry service worker — installable PWA with safe caching.
  *
- * Strategy:
- *  - App shell (navigations + static assets): stale-while-revalidate so the
- *    ledger and current list open instantly and even work on bad in-store
- *    signal, then refresh in the background.
- *  - Supabase API calls are NEVER cached here — auth + live data must be fresh.
- *    (Write queuing on reconnect is a Step-8 enhancement, not Step 1.)
+ * Strategy (revised to avoid stale-HTML-after-deploy blank screens):
+ *  - Page navigations (HTML): NETWORK-FIRST. Always fetch the live page when
+ *    online so a new deploy is picked up immediately; fall back to the last
+ *    cached page only when the network is unavailable (in-store bad signal).
+ *  - Static assets (JS/CSS/icons): stale-while-revalidate for speed.
+ *  - Supabase / cross-origin / auth requests: never intercepted.
+ *
+ * Bump CACHE when changing this file so old caches are purged on activate.
  */
-const CACHE = "pantry-shell-v1";
-const SHELL = ["/", "/login", "/manifest.json", "/icons/icon.svg"];
+const CACHE = "pantry-shell-v2";
+const PRECACHE = ["/manifest.json", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -32,11 +37,31 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-
-  // Never intercept Supabase or other cross-origin API traffic.
-  if (url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin) return; // leave Supabase etc. alone
   if (url.pathname.startsWith("/auth")) return;
 
+  const isNavigation =
+    request.mode === "navigate" ||
+    (request.headers.get("accept") || "").includes("text/html");
+
+  if (isNavigation) {
+    // Network-first: fresh page when online, cached page only as offline fallback.
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          return cached || caches.match("/");
+        })
+    );
+    return;
+  }
+
+  // Static assets: stale-while-revalidate.
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(request);
@@ -48,7 +73,6 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => cached);
-
       return cached || network;
     })
   );
