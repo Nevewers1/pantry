@@ -1,0 +1,340 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import type { PantryItem, StorageLocation } from "@/lib/types";
+import { expiryLabel, formatQty } from "@/lib/format";
+import {
+  ArrowLeftIcon,
+  BoxIcon,
+  MinusIcon,
+  PlusIcon,
+} from "@/components/icons";
+import { ItemSheet } from "@/components/pantry/ItemSheet";
+
+type SortKey = "expiry" | "name" | "updated";
+type LocationFilter = "all" | StorageLocation;
+
+export function PantryClient({
+  initialItems,
+  householdId,
+  userId,
+}: {
+  initialItems: PantryItem[];
+  householdId: string;
+  userId: string;
+}) {
+  const [items, setItems] = useState<PantryItem[]>(initialItems);
+  const [locationFilter, setLocationFilter] = useState<LocationFilter>("all");
+  const [sort, setSort] = useState<SortKey>("expiry");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editing, setEditing] = useState<PantryItem | null>(null);
+
+  const supabase = useMemo(() => createClient(), []);
+
+  const upsert = useCallback((it: PantryItem) => {
+    setItems((prev) => {
+      const i = prev.findIndex((p) => p.id === it.id);
+      if (i === -1) return [...prev, it];
+      const next = [...prev];
+      next[i] = it;
+      return next;
+    });
+  }, []);
+
+  const remove = useCallback((id: string) => {
+    setItems((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  // Live sync: reflect the other partner's edits in real time.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`pantry-${householdId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "pantry_items",
+          filter: `household_id=eq.${householdId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            remove((payload.old as { id: string }).id);
+          } else {
+            upsert(payload.new as PantryItem);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, householdId, upsert, remove]);
+
+  const nameSuggestions = useMemo(
+    () => Array.from(new Set(items.map((i) => i.name))).sort(),
+    [items]
+  );
+  const categorySuggestions = useMemo(
+    () =>
+      Array.from(
+        new Set(items.map((i) => i.category).filter(Boolean) as string[])
+      ).sort(),
+    [items]
+  );
+
+  const visible = useMemo(() => {
+    const list =
+      locationFilter === "all"
+        ? items
+        : items.filter((i) => i.location === locationFilter);
+
+    return [...list].sort((a, b) => {
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "updated")
+        return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+      // expiry-first (default): soonest date first, undated items last
+      if (!a.expiry_date && !b.expiry_date) return a.name.localeCompare(b.name);
+      if (!a.expiry_date) return 1;
+      if (!b.expiry_date) return -1;
+      return a.expiry_date.localeCompare(b.expiry_date);
+    });
+  }, [items, locationFilter, sort]);
+
+  async function adjustQty(item: PantryItem, delta: number) {
+    const q = Math.max(0, Math.round((item.quantity + delta) * 100) / 100);
+    upsert({ ...item, quantity: q }); // optimistic
+    const { error } = await supabase
+      .from("pantry_items")
+      .update({ quantity: q, updated_by: userId })
+      .eq("id", item.id);
+    if (error) upsert(item); // revert on failure; realtime will also correct
+  }
+
+  return (
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-10 border-b border-border bg-bg/80 backdrop-blur">
+        <div className="mx-auto flex max-w-lg items-center justify-between px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <Link
+              href="/"
+              aria-label="Back to home"
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-muted hover:bg-surface hover:text-ink"
+            >
+              <ArrowLeftIcon className="h-5 w-5" />
+            </Link>
+            <h1 className="text-[17px] font-semibold tracking-tightish text-ink">
+              Pantry
+            </h1>
+          </div>
+          <button
+            onClick={() => {
+              setEditing(null);
+              setSheetOpen(true);
+            }}
+            className="flex min-h-tap items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[14px] font-medium text-white hover:bg-brand-hover"
+          >
+            <PlusIcon className="h-4 w-4" />
+            Add
+          </button>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
+        {/* Filters */}
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex gap-1 rounded-xl bg-surface p-1">
+            {(["all", "pantry", "fridge", "freezer"] as const).map((loc) => (
+              <button
+                key={loc}
+                onClick={() => setLocationFilter(loc)}
+                className={`min-h-[38px] rounded-lg px-3 text-[13px] font-medium capitalize transition-colors ${
+                  locationFilter === loc
+                    ? "bg-brand-tint text-brand"
+                    : "text-muted hover:text-ink"
+                }`}
+              >
+                {loc}
+              </button>
+            ))}
+          </div>
+          <label className="sr-only" htmlFor="sort">
+            Sort
+          </label>
+          <select
+            id="sort"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="min-h-[38px] rounded-xl border border-border bg-surface px-2 text-[13px] font-medium text-ink"
+          >
+            <option value="expiry">Expiry first</option>
+            <option value="name">Name</option>
+            <option value="updated">Recently updated</option>
+          </select>
+        </div>
+
+        {visible.length === 0 ? (
+          <EmptyState
+            filtered={locationFilter !== "all" || items.length > 0}
+            onAdd={() => {
+              setEditing(null);
+              setSheetOpen(true);
+            }}
+          />
+        ) : (
+          <ul className="overflow-hidden rounded-card border border-border bg-surface">
+            {visible.map((item, idx) => (
+              <ItemRow
+                key={item.id}
+                item={item}
+                last={idx === visible.length - 1}
+                onEdit={() => {
+                  setEditing(item);
+                  setSheetOpen(true);
+                }}
+                onDec={() => adjustQty(item, -1)}
+                onInc={() => adjustQty(item, +1)}
+              />
+            ))}
+          </ul>
+        )}
+      </main>
+
+      <ItemSheet
+        open={sheetOpen}
+        item={editing}
+        householdId={householdId}
+        userId={userId}
+        supabase={supabase}
+        nameSuggestions={nameSuggestions}
+        categorySuggestions={categorySuggestions}
+        onClose={() => setSheetOpen(false)}
+        onUpsert={upsert}
+        onRemove={remove}
+      />
+    </div>
+  );
+}
+
+function ItemRow({
+  item,
+  last,
+  onEdit,
+  onDec,
+  onInc,
+}: {
+  item: PantryItem;
+  last: boolean;
+  onEdit: () => void;
+  onDec: () => void;
+  onInc: () => void;
+}) {
+  const exp = expiryLabel(item.expiry_date);
+  const low =
+    item.min_threshold != null && item.quantity <= item.min_threshold;
+
+  return (
+    <li
+      className={`flex items-center gap-3 px-4 py-3 ${
+        last ? "" : "border-b border-border"
+      }`}
+    >
+      <button
+        onClick={onEdit}
+        className="min-w-0 flex-1 text-left"
+        aria-label={`Edit ${item.name}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[15px] font-medium text-ink">
+            {item.name}
+          </span>
+          {low && (
+            <span className="shrink-0 rounded-full bg-warn-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warn">
+              Low
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
+          <span className="capitalize">{item.location}</span>
+          {item.category && <span>· {item.category}</span>}
+          {exp && (
+            <span className={`flex items-center gap-1 ${exp.tone}`}>
+              · <span className={`h-1.5 w-1.5 rounded-full ${exp.dot}`} />
+              {exp.text}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* Quantity stepper — one-tap use */}
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          onClick={onDec}
+          disabled={item.quantity <= 0}
+          aria-label={`Use one ${item.name}`}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-ink disabled:opacity-30"
+        >
+          <MinusIcon className="h-4 w-4" />
+        </button>
+        <span className="min-w-[2.5rem] text-center text-[15px] font-medium tabular-nums text-ink">
+          {formatQty(item.quantity)}
+          {item.unit ? (
+            <span className="ml-0.5 text-[12px] font-normal text-muted">
+              {item.unit}
+            </span>
+          ) : null}
+        </span>
+        <button
+          onClick={onInc}
+          aria-label={`Add one ${item.name}`}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-ink"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function EmptyState({
+  filtered,
+  onAdd,
+}: {
+  filtered: boolean;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center rounded-card border border-dashed border-border bg-surface px-6 py-12 text-center">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-tint text-brand">
+        <BoxIcon className="h-6 w-6" />
+      </div>
+      {filtered ? (
+        <>
+          <p className="text-[15px] font-medium text-ink">Nothing here</p>
+          <p className="mt-1 text-sm text-muted">
+            No items in this location yet.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-[15px] font-medium text-ink">
+            Your pantry&apos;s empty
+          </p>
+          <p className="mt-1 text-sm text-muted">
+            Add your first item to start tracking what&apos;s in the house.
+          </p>
+        </>
+      )}
+      <button
+        onClick={onAdd}
+        className="mt-4 flex min-h-tap items-center gap-1.5 rounded-xl bg-brand px-4 text-[14px] font-medium text-white hover:bg-brand-hover"
+      >
+        <PlusIcon className="h-4 w-4" />
+        Add an item
+      </button>
+    </div>
+  );
+}

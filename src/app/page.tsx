@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { UseSoonStrip } from "@/components/UseSoonStrip";
@@ -99,6 +100,7 @@ export default async function HomePage() {
               icon={<BoxIcon className="h-5 w-5" />}
               title="Pantry"
               desc="What's in the house right now"
+              href="/pantry"
             />
             <LoopRow
               icon={<BookIcon className="h-5 w-5" />}
@@ -134,29 +136,45 @@ function LoopRow({
   title,
   desc,
   last,
+  href,
 }: {
   icon: React.ReactNode;
   title: string;
   desc: string;
   last?: boolean;
+  href?: string;
 }) {
-  return (
-    <div
-      className={`flex items-center gap-3.5 px-4 py-3.5 ${
-        last ? "" : "border-b border-border"
-      }`}
-    >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg text-muted">
+  const inner = (
+    <>
+      <div
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+          href ? "bg-brand-tint text-brand" : "bg-bg text-muted"
+        }`}
+      >
         {icon}
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[15px] font-medium text-ink">{title}</p>
         <p className="truncate text-sm text-muted">{desc}</p>
       </div>
-      <span className="rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand">
-        Soon
-      </span>
+      {!href && (
+        <span className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
+          Soon
+        </span>
+      )}
       <ChevronRightIcon className="h-4 w-4 shrink-0 text-faint" />
-    </div>
+    </>
+  );
+
+  const cls = `flex items-center gap-3.5 px-4 py-3.5 ${
+    last ? "" : "border-b border-border"
+  } ${href ? "hover:bg-bg" : ""}`;
+
+  return href ? (
+    <Link href={href} className={cls}>
+      {inner}
+    </Link>
+  ) : (
+    <div className={cls}>{inner}</div>
   );
 }
