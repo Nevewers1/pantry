@@ -4,7 +4,7 @@ import { normalizeName } from "@/lib/normalize";
 import type { RecipeDraft, RecipeIngredient, RecipeTag } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const VALID_TAGS: RecipeTag[] = [
@@ -16,28 +16,52 @@ const VALID_TAGS: RecipeTag[] = [
   "adults_only",
 ];
 
-const SYSTEM_PROMPT = `You suggest home meals a household can cook mostly from what they already have.
-You are given their current pantry/fridge/freezer list; some items are flagged (use soon).
-Propose 3 to 5 realistic meals. Rules:
+const SYSTEM_PROMPT = `You invent simple home meals a household can cook mostly from what they already have.
+You get their current pantry/fridge/freezer list; some items are flagged (use soon).
+Propose exactly 3 realistic meals. This is generative — do NOT look for a specific named recipe.
+A plain "steak with roast veg" or "omelette" is perfectly good.
+Rules:
 - Strongly favour items flagged (use soon) so nothing is wasted.
-- Use mostly items already in stock; keep any extra shopping to a minimum.
-- AVOID chilli / spicy heat entirely (household preference: little to no chilli).
-- Prefer quick, weeknight-friendly meals.
-Return ONLY this JSON, no prose, no markdown fences:
+- Build meals mostly from listed items. You MAY assume basic staples are on hand
+  (salt, pepper, cooking oil, butter, common dried herbs/spices, water) even if not listed.
+- Reasonable substitutions are fine (e.g. any pasta shape, any leafy green).
+- AVOID chilli / spicy heat entirely (household preference).
+- Keep meals quick and weeknight-friendly. Keep the method to 3-5 short steps.
+Return ONLY compact JSON (no prose, no markdown fences), and keep it short enough to be complete:
 {"suggestions":[{"title":"string","servings":number,"prep_min":number|null,"cook_min":number|null,"tags":["kid_friendly"|"lunchbox"|"snack"|"quick"|"freezer_friendly"|"adults_only"],"instructions":"string","ingredients":[{"name":"string","quantity":number|null,"unit":"string|null","is_staple":boolean}]}]}
-- instructions: concise numbered steps in your own words.
-- is_staple true for salt, pepper, water, oil, common dried spices.`;
+- is_staple true for salt, pepper, water, oil, butter, common dried spices.`;
 
 function extractJson(text: string): { suggestions?: unknown[] } | null {
   const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) return null;
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1));
-  } catch {
-    return null;
+  const tryParse = (s: string): unknown => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+
+  // 1) whole string  2) outermost {…}  3) outermost […]
+  let obj: unknown = tryParse(cleaned);
+  if (obj == null) {
+    const o1 = cleaned.indexOf("{");
+    const o2 = cleaned.lastIndexOf("}");
+    if (o1 !== -1 && o2 > o1) obj = tryParse(cleaned.slice(o1, o2 + 1));
   }
+  if (obj == null) {
+    const a1 = cleaned.indexOf("[");
+    const a2 = cleaned.lastIndexOf("]");
+    if (a1 !== -1 && a2 > a1) obj = tryParse(cleaned.slice(a1, a2 + 1));
+  }
+  if (obj == null) return null;
+
+  // Accept a bare array, {suggestions:[...]}, or any object with an array value.
+  if (Array.isArray(obj)) return { suggestions: obj };
+  const rec = obj as Record<string, unknown>;
+  if (Array.isArray(rec.suggestions)) return { suggestions: rec.suggestions };
+  const firstArray = Object.values(rec).find((v) => Array.isArray(v));
+  if (Array.isArray(firstArray)) return { suggestions: firstArray };
+  return null;
 }
 
 export async function POST() {
@@ -92,7 +116,7 @@ export async function POST() {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2500,
+        max_tokens: 4000,
         system: SYSTEM_PROMPT,
         messages: [
           { role: "user", content: `Current stock:\n${list}\n\nSuggest meals.` },
