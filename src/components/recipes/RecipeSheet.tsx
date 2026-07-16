@@ -98,6 +98,7 @@ export function RecipeSheet({
   onClose: () => void;
   onSaved: (r: RecipeWithIngredients) => void;
   onDeleted: (id: string) => void;
+  onCook: (r: RecipeWithIngredients) => void;
 }) {
   const [form, setForm] = useState<Form>(toForm(null, null));
   const [busy, setBusy] = useState(false);
@@ -281,6 +282,19 @@ export function RecipeSheet({
           onSubmit={save}
           className="flex flex-1 flex-col gap-4 overflow-y-auto p-5"
         >
+          {recipe && (
+            <button
+              type="button"
+              onClick={() => {
+                onCook(recipe);
+                onClose();
+              }}
+              className="flex min-h-tap items-center justify-center gap-2 rounded-xl bg-brand-tint text-[15px] font-semibold text-brand"
+            >
+              Cooked this — update my pantry
+            </button>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <label htmlFor="title" className={label}>
               Title

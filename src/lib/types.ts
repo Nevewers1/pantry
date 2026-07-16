@@ -80,6 +80,14 @@ export type RecipeWithIngredients = Recipe & {
   recipe_ingredients: RecipeIngredient[];
 };
 
+// Lightweight pantry row for recipe matching + "cooked this" decrements.
+export type PantrySlim = {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string | null;
+};
+
 // A parsed-but-unsaved recipe (from import or manual entry) shown for review.
 export type RecipeDraft = {
   title: string;

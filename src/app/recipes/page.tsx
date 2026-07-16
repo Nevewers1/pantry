@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { RecipesClient } from "@/components/recipes/RecipesClient";
-import type { RecipeWithIngredients } from "@/lib/types";
+import type { PantrySlim, RecipeWithIngredients } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +26,14 @@ export default async function RecipesPage() {
     .order("is_favourite", { ascending: false })
     .order("title", { ascending: true });
 
-  const { data: pantry } = await supabase.from("pantry_items").select("name");
+  const { data: pantry } = await supabase
+    .from("pantry_items")
+    .select("id, name, quantity, unit");
 
   return (
     <RecipesClient
       initialRecipes={(recipes ?? []) as RecipeWithIngredients[]}
-      pantryNames={(pantry ?? []).map((p) => p.name as string)}
+      initialPantry={(pantry ?? []) as PantrySlim[]}
       householdId={profile.household_id as string}
       userId={user.id}
     />

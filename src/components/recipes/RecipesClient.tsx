@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { namesMatch } from "@/lib/normalize";
 import {
   RECIPE_TAGS,
+  type PantrySlim,
   type RecipeDraft,
   type RecipeWithIngredients,
 } from "@/lib/types";
@@ -16,6 +17,7 @@ import {
   LinkIcon,
   PlusIcon,
   StarIcon,
+  XIcon,
 } from "@/components/icons";
 import { RecipeSheet } from "@/components/recipes/RecipeSheet";
 import { ImportSheet } from "@/components/recipes/ImportSheet";
@@ -23,18 +25,21 @@ import { ImportSheet } from "@/components/recipes/ImportSheet";
 const tagLabel = (v: string) =>
   RECIPE_TAGS.find((t) => t.value === v)?.label ?? v;
 
+type Toast = { msg: string; undo: () => Promise<void> } | null;
+
 export function RecipesClient({
   initialRecipes,
-  pantryNames,
+  initialPantry,
   householdId,
   userId,
 }: {
   initialRecipes: RecipeWithIngredients[];
-  pantryNames: string[];
+  initialPantry: PantrySlim[];
   householdId: string;
   userId: string;
 }) {
   const [recipes, setRecipes] = useState(initialRecipes);
+  const [pantry, setPantry] = useState(initialPantry);
   const [favOnly, setFavOnly] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
 
@@ -43,8 +48,104 @@ export function RecipesClient({
   const [draft, setDraft] = useState<RecipeDraft | null>(null);
 
   const [importMode, setImportMode] = useState<"link" | "text" | null>(null);
+  const [toast, setToast] = useState<Toast>(null);
 
   const supabase = useMemo(() => createClient(), []);
+  const pantryNames = useMemo(() => pantry.map((p) => p.name), [pantry]);
+
+  async function cookRecipe(r: RecipeWithIngredients) {
+    const ings = (r.recipe_ingredients ?? []).filter(
+      (i) => !i.is_staple && i.name.trim()
+    );
+    const changes: { id: string; old: number; next: number }[] = [];
+    for (const ing of ings) {
+      const item = pantry.find((p) => namesMatch(ing.name, p.name));
+      if (!item) continue;
+      let amount = 1;
+      if (ing.quantity && Number.isFinite(ing.quantity)) {
+        const iu = (ing.unit ?? "").trim().toLowerCase();
+        const pu = (item.unit ?? "").trim().toLowerCase();
+        if (iu === pu) amount = ing.quantity;
+      }
+      const next = Math.max(0, Math.round((item.quantity - amount) * 100) / 100);
+      if (next !== item.quantity)
+        changes.push({ id: item.id, old: item.quantity, next });
+    }
+
+    // Apply pantry decrements.
+    await Promise.all(
+      changes.map((c) =>
+        supabase
+          .from("pantry_items")
+          .update({ quantity: c.next, updated_by: userId })
+          .eq("id", c.id)
+      )
+    );
+    setPantry((prev) =>
+      prev.map((p) => {
+        const c = changes.find((x) => x.id === p.id);
+        return c ? { ...p, quantity: c.next } : p;
+      })
+    );
+
+    // Bump cooked stats.
+    const prevTimes = r.times_cooked;
+    const prevLast = r.last_cooked_at;
+    const { data: rec } = await supabase
+      .from("recipes")
+      .update({
+        times_cooked: prevTimes + 1,
+        last_cooked_at: new Date().toISOString(),
+      })
+      .eq("id", r.id)
+      .select()
+      .single();
+    if (rec)
+      upsertRecipe({ ...rec, recipe_ingredients: r.recipe_ingredients });
+
+    // Audit log.
+    const { data: log } = await supabase
+      .from("consumption_log")
+      .insert({
+        household_id: householdId,
+        recipe_id: r.id,
+        note: `Cooked ${r.title}`,
+        logged_by: userId,
+      })
+      .select()
+      .single();
+    const logId = log?.id as string | undefined;
+
+    setToast({
+      msg: `Cooked ${r.title} — ${changes.length} pantry item${
+        changes.length === 1 ? "" : "s"
+      } updated`,
+      undo: async () => {
+        await Promise.all(
+          changes.map((c) =>
+            supabase
+              .from("pantry_items")
+              .update({ quantity: c.old })
+              .eq("id", c.id)
+          )
+        );
+        setPantry((prev) =>
+          prev.map((p) => {
+            const c = changes.find((x) => x.id === p.id);
+            return c ? { ...p, quantity: c.old } : p;
+          })
+        );
+        await supabase
+          .from("recipes")
+          .update({ times_cooked: prevTimes, last_cooked_at: prevLast })
+          .eq("id", r.id);
+        upsertRecipe(r);
+        if (logId)
+          await supabase.from("consumption_log").delete().eq("id", logId);
+        setToast(null);
+      },
+    });
+  }
 
   function upsertRecipe(r: RecipeWithIngredients) {
     setRecipes((prev) => {
@@ -258,6 +359,7 @@ export function RecipesClient({
         onClose={() => setSheetOpen(false)}
         onSaved={upsertRecipe}
         onDeleted={removeRecipe}
+        onCook={cookRecipe}
       />
 
       <ImportSheet
@@ -270,6 +372,27 @@ export function RecipesClient({
           setSheetOpen(true);
         }}
       />
+
+      {toast && (
+        <div className="safe-bottom fixed inset-x-4 bottom-4 z-[60] mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl bg-ink px-4 py-3 shadow-pop">
+          <span className="text-[14px] text-surface">{toast.msg}</span>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={() => toast.undo()}
+              className="text-[14px] font-semibold text-brand-ring"
+            >
+              Undo
+            </button>
+            <button
+              onClick={() => setToast(null)}
+              aria-label="Dismiss"
+              className="flex h-6 w-6 items-center justify-center text-surface/60 hover:text-surface"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
