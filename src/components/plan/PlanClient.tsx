@@ -3,12 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { DinnerStatus, PlanDayResult, RecipeRef } from "@/lib/types";
+import type {
+  DinnerStatus,
+  PantrySlim,
+  PlanDayResult,
+  RecipeRef,
+} from "@/lib/types";
 import {
   ArrowLeftIcon,
   CalendarIcon,
   ChevronRightIcon,
 } from "@/components/icons";
+import { LunchboxSheet } from "@/components/plan/LunchboxSheet";
 
 type Day = PlanDayResult & { away: boolean; dinner_status: DinnerStatus };
 
@@ -47,14 +53,20 @@ const inputCls =
 
 export function PlanClient({
   householdId,
+  userId,
   recipes,
+  pantry,
   kidsAnchor,
   kidsPattern,
+  childNames,
 }: {
   householdId: string;
+  userId: string;
   recipes: RecipeRef[];
+  pantry: PantrySlim[];
   kidsAnchor: string | null;
   kidsPattern: boolean[];
+  childNames: [string, string];
 }) {
   const supabase = useMemo(() => createClient(), []);
   const recipeTitle = useMemo(() => {
@@ -80,6 +92,16 @@ export function PlanClient({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [uberCount, setUberCount] = useState<number | null>(null);
+  const [names, setNames] = useState<[string, string]>(childNames);
+  const [lunchboxDate, setLunchboxDate] = useState<string | null>(null);
+
+  async function saveName(slot: 1 | 2, value: string) {
+    setNames((n) => (slot === 1 ? [value, n[1]] : [n[0], value]));
+    await supabase
+      .from("households")
+      .update(slot === 1 ? { child1_name: value } : { child2_name: value })
+      .eq("id", householdId);
+  }
 
   const dates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -325,6 +347,18 @@ export function PlanClient({
             onChange={(e) => saveAnchor(e.target.value)}
             className="min-h-tap w-full rounded-xl border border-border bg-surface px-3.5 text-[15px] text-ink focus:border-brand"
           />
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {([1, 2] as const).map((slot) => (
+              <input
+                key={slot}
+                value={names[slot - 1]}
+                onChange={(e) => saveName(slot, e.target.value)}
+                aria-label={`Child ${slot} name`}
+                placeholder={`Child ${slot}`}
+                className="min-h-[42px] w-full rounded-lg border border-border bg-surface px-3 text-[14px] text-ink focus:border-brand"
+              />
+            ))}
+          </div>
         </div>
 
         {/* Day toggles (for generating) */}
@@ -481,6 +515,15 @@ export function PlanClient({
                         value={day.snack_notes}
                         onChange={(v) => setDay(i, { snack_notes: v })}
                       />
+                      {day.kids_present && (
+                        <button
+                          type="button"
+                          onClick={() => setLunchboxDate(day.date)}
+                          className="mt-1 flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-xl border border-brand-soft bg-brand-tint text-[14px] font-medium text-brand"
+                        >
+                          Lunchboxes ({names[0]} &amp; {names[1]})
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -496,6 +539,16 @@ export function PlanClient({
           </div>
         )}
       </main>
+
+      <LunchboxSheet
+        date={lunchboxDate}
+        householdId={householdId}
+        userId={userId}
+        supabase={supabase}
+        childNames={names}
+        pantry={pantry}
+        onClose={() => setLunchboxDate(null)}
+      />
     </div>
   );
 }

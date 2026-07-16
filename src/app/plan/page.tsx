@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PlanClient } from "@/components/plan/PlanClient";
-import type { RecipeRef } from "@/lib/types";
+import type { PantrySlim, RecipeRef } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ export default async function PlanPage() {
 
   const { data: household } = await supabase
     .from("households")
-    .select("kids_anchor, kids_pattern")
+    .select("kids_anchor, kids_pattern, child1_name, child2_name")
     .eq("id", profile.household_id)
     .maybeSingle();
 
@@ -31,12 +31,22 @@ export default async function PlanPage() {
     .select("id, title, tags")
     .order("title", { ascending: true });
 
+  const { data: pantry } = await supabase
+    .from("pantry_items")
+    .select("id, name, quantity, unit");
+
   return (
     <PlanClient
       householdId={profile.household_id as string}
+      userId={user.id}
       recipes={(recipes ?? []) as RecipeRef[]}
+      pantry={(pantry ?? []) as PantrySlim[]}
       kidsAnchor={(household?.kids_anchor as string | null) ?? null}
       kidsPattern={(household?.kids_pattern as boolean[] | null) ?? []}
+      childNames={[
+        (household?.child1_name as string) ?? "Zyana",
+        (household?.child2_name as string) ?? "Micah",
+      ]}
     />
   );
 }

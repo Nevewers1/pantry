@@ -95,6 +95,25 @@ export type PlanDayResult = {
 
 export type DinnerStatus = "home" | "eating_out" | "ordered_in";
 
+export type LunchComponent = "crunch_sip" | "afternoon_tea" | "recess";
+
+export const LUNCH_COMPONENTS: { value: LunchComponent; label: string }[] = [
+  { value: "crunch_sip", label: "Crunch & Sip" },
+  { value: "afternoon_tea", label: "Afternoon tea" },
+  { value: "recess", label: "Recess / lunch" },
+];
+
+export type LunchboxItem = {
+  id?: string;
+  date: string;
+  child_slot: 1 | 2;
+  component: LunchComponent;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  pantry_item_id: string | null;
+};
+
 // Minimal recipe reference for the planner's library dropdown.
 export type RecipeRef = { id: string; title: string; tags: string[] };
 
