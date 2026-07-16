@@ -397,7 +397,8 @@ export function RecipesClient({
         open={suggestOpen}
         onClose={() => setSuggestOpen(false)}
         onPick={(d) => {
-          setSuggestOpen(false);
+          // Keep the suggestions list open underneath so closing the review
+          // returns you to all the ideas instead of losing them.
           setEditing(null);
           setDraft(d);
           setSheetOpen(true);
