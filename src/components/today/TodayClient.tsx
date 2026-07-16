@@ -4,8 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { namesMatch } from "@/lib/normalize";
-import { LUNCH_COMPONENTS, type LunchboxItem } from "@/lib/types";
+import {
+  LUNCH_COMPONENTS,
+  type LunchboxItem,
+  type RecipeWithIngredients,
+} from "@/lib/types";
 import { UseSoonStrip } from "@/components/UseSoonStrip";
+import { RecipeView } from "@/components/recipes/RecipeView";
 import { CheckIcon, LeafIcon, LogoutIcon, XIcon } from "@/components/icons";
 import { signOut } from "@/app/actions";
 
@@ -67,6 +72,17 @@ export function TodayClient({
   const [lunchboxes, setLunchboxes] = useState<LbItem[]>([]);
   const [pantry, setPantry] = useState<PantryRow[]>([]);
   const [toast, setToast] = useState<Toast>(null);
+  const [viewRecipe, setViewRecipe] = useState<RecipeWithIngredients | null>(null);
+
+  async function openRecipe(id: string | null) {
+    if (!id) return;
+    const { data } = await supabase
+      .from("recipes")
+      .select("*, recipe_ingredients(*)")
+      .eq("id", id)
+      .maybeSingle();
+    if (data) setViewRecipe(data as RecipeWithIngredients);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -264,9 +280,6 @@ export function TodayClient({
     if (day.dinner_recipe_id) return titles.get(day.dinner_recipe_id) ?? "Dinner";
     return day.dinner_note ?? "—";
   })();
-  const sideTitles = (day?.dinner_side_ids ?? [])
-    .map((id) => titles.get(id))
-    .filter(Boolean) as string[];
   const canCook =
     !!day && !day.away && day.dinner_status === "home" && !!day.dinner_recipe_id;
 
@@ -332,18 +345,33 @@ export function TodayClient({
               </div>
             ) : (
               <>
-                <p className="text-[16px] font-medium text-ink">{dinnerText}</p>
-                {sideTitles.length > 0 && (
+                {day.dinner_recipe_id ? (
+                  <button
+                    onClick={() => openRecipe(day.dinner_recipe_id)}
+                    className="text-left text-[16px] font-medium text-ink underline-offset-4 hover:underline"
+                  >
+                    {dinnerText}
+                  </button>
+                ) : (
+                  <p className="text-[16px] font-medium text-ink">{dinnerText}</p>
+                )}
+                {(day.dinner_side_ids ?? []).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {sideTitles.map((t) => (
-                      <span
-                        key={t}
+                    {(day.dinner_side_ids ?? []).map((sid) => (
+                      <button
+                        key={sid}
+                        onClick={() => openRecipe(sid)}
                         className="rounded-lg bg-brand-tint px-2 py-1 text-[12px] font-medium text-brand"
                       >
-                        {t}
-                      </span>
+                        {titles.get(sid) ?? "Side"}
+                      </button>
                     ))}
                   </div>
+                )}
+                {day.dinner_recipe_id && (
+                  <p className="mt-2 text-[12px] text-faint">
+                    Tap the dinner to see the full recipe.
+                  </p>
                 )}
                 {(day.lunch_note || day.breakfast_note) && (
                   <div className="mt-3 space-y-1 border-t border-border pt-3 text-[13px] text-muted">
@@ -438,6 +466,8 @@ export function TodayClient({
           </section>
         )}
       </main>
+
+      <RecipeView recipe={viewRecipe} onClose={() => setViewRecipe(null)} />
 
       {toast && (
         <div className="safe-bottom fixed inset-x-4 bottom-20 z-[60] mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl bg-ink px-4 py-3 shadow-pop">

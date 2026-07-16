@@ -28,12 +28,12 @@ export default async function PlanPage() {
 
   const { data: recipes } = await supabase
     .from("recipes")
-    .select("id, title, tags, meal_type")
+    .select("id, title, tags, meal_type, is_favourite")
     .order("title", { ascending: true });
 
   const { data: pantry } = await supabase
     .from("pantry_items")
-    .select("id, name, quantity, unit");
+    .select("id, name, quantity, unit, location");
 
   return (
     <PlanClient

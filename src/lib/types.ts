@@ -152,6 +152,7 @@ export type RecipeRef = {
   title: string;
   tags: string[];
   meal_type: MealType;
+  is_favourite: boolean;
 };
 
 // Lightweight pantry row for recipe matching + "cooked this" decrements.
@@ -160,6 +161,7 @@ export type PantrySlim = {
   name: string;
   quantity: number;
   unit: string | null;
+  location?: string;
 };
 
 // A parsed-but-unsaved recipe (from import, suggestion, or manual entry) for review.

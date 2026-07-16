@@ -237,7 +237,128 @@ export function PlanClient({
       .eq("id", householdId);
   }
 
+  // Build the week from SAVED recipes + pantry — no AI, instant, free.
   async function generate() {
+    setError(null);
+    setSaved(false);
+    const primaries = [...primaryRecipes].sort(
+      (a, b) => Number(b.is_favourite) - Number(a.is_favourite)
+    );
+    if (primaries.length === 0) {
+      setError(
+        "Add some dinner recipes (Full meal or Main) first — or tap “New ideas (AI)”."
+      );
+      return;
+    }
+    const kidFriendly = primaries.filter((r) =>
+      (r.tags ?? []).includes("kid_friendly")
+    );
+    const fruits = pantry.filter((p) => (p.location ?? "") === "fruits_veg");
+    const snacks = pantry.filter((p) => (p.location ?? "") === "snacks");
+
+    let idx = 0;
+    const chosen = dates.map((d) => {
+      let r = primaries[idx % primaries.length];
+      idx++;
+      if (
+        kidsFor(d) &&
+        kidFriendly.length &&
+        !(r.tags ?? []).includes("kid_friendly")
+      ) {
+        r = kidFriendly[idx % kidFriendly.length];
+        idx++;
+      }
+      return r;
+    });
+
+    const newPlan: Day[] = dates.map((d, i) => {
+      const kids = kidsFor(d);
+      const primary = chosen[i];
+      let dsides: string[] = [];
+      if (primary.meal_type === "main" && sideRecipes.length) {
+        const s = [sideRecipes[i % sideRecipes.length].id];
+        if (sideRecipes.length > 1)
+          s.push(sideRecipes[(i + 1) % sideRecipes.length].id);
+        dsides = Array.from(new Set(s));
+      }
+      const wd = d.getDay();
+      const weekend = wd === 0 || wd === 6;
+      return {
+        date: ymd(d),
+        kids_present: kids,
+        away: false,
+        dinner_status: "home" as DinnerStatus,
+        dinner_recipe_id: primary.id,
+        dinner_side_ids: dsides,
+        dinner_note: null,
+        lunch_note: null,
+        breakfast_note:
+          kids && weekend
+            ? "Cooked breakfast (e.g. eggs, bacon, hash browns)"
+            : null,
+        lunchbox_notes: null,
+        snack_notes: null,
+      };
+    });
+    setPlan(newPlan);
+
+    // Deterministic lunchboxes on kids days: a fruit, a snack, leftovers of dinner.
+    const kidsDates = dates.filter((d) => kidsFor(d));
+    const lbRows = kidsDates.flatMap((d, j) => {
+      const di = dates.findIndex((x) => ymd(x) === ymd(d));
+      const recess = chosen[di]?.title ?? null;
+      return ([1, 2] as const).flatMap((slot) => {
+        const rows: Record<string, unknown>[] = [];
+        if (fruits.length) {
+          const f = fruits[(j + slot) % fruits.length];
+          rows.push({
+            household_id: householdId,
+            date: ymd(d),
+            child_slot: slot,
+            component: "crunch_sip",
+            name: f.name,
+            quantity: 1,
+            unit: f.unit,
+            pantry_item_id: f.id,
+          });
+        }
+        if (snacks.length) {
+          const s = snacks[(j + slot) % snacks.length];
+          rows.push({
+            household_id: householdId,
+            date: ymd(d),
+            child_slot: slot,
+            component: "afternoon_tea",
+            name: s.name,
+            quantity: 1,
+            unit: s.unit,
+            pantry_item_id: s.id,
+          });
+        }
+        if (recess) {
+          rows.push({
+            household_id: householdId,
+            date: ymd(d),
+            child_slot: slot,
+            component: "recess",
+            name: recess,
+            quantity: 1,
+            unit: null,
+            pantry_item_id: null,
+          });
+        }
+        return rows;
+      });
+    });
+    const lbDates = kidsDates.map(ymd);
+    if (lbDates.length) {
+      await supabase.from("lunchbox_items").delete().in("date", lbDates);
+      if (lbRows.length) await supabase.from("lunchbox_items").insert(lbRows);
+    }
+  }
+
+  // Optional: ask AI for fresh, taste-based ideas (uses credits). Rarely needed.
+  async function planWithAI() {
     setLoading(true);
     setError(null);
     setSaved(false);
@@ -458,10 +579,20 @@ export function PlanClient({
         <button
           onClick={generate}
           disabled={loading}
-          className="mb-2 min-h-tap w-full rounded-xl bg-brand text-[15px] font-medium text-white hover:bg-brand-hover disabled:opacity-50"
+          className="min-h-tap w-full rounded-xl bg-brand text-[15px] font-medium text-white hover:bg-brand-hover disabled:opacity-50"
         >
-          {loading ? "Building your week…" : plan ? "Regenerate plan" : "Plan my week"}
+          {plan ? "Rebuild from my recipes" : "Plan my week"}
         </button>
+        <div className="mb-2 mt-2 flex items-center justify-center gap-1 text-[12px] text-muted">
+          <span>Thin on recipes?</span>
+          <button
+            onClick={planWithAI}
+            disabled={loading}
+            className="font-medium text-brand underline-offset-4 hover:underline disabled:opacity-50"
+          >
+            {loading ? "Asking AI…" : "New ideas (AI)"}
+          </button>
+        </div>
         {error && <p className="mb-2 text-center text-sm text-danger">{error}</p>}
         {loadingSaved && (
           <p className="mb-2 text-center text-[13px] text-muted">Loading saved plan…</p>
