@@ -80,6 +80,21 @@ export type RecipeWithIngredients = Recipe & {
   recipe_ingredients: RecipeIngredient[];
 };
 
+// A single planned day returned by the weekly-plan generator / stored per day.
+export type PlanDayResult = {
+  date: string; // YYYY-MM-DD
+  kids_present: boolean;
+  dinner_recipe_id: string | null;
+  dinner_note: string | null;
+  lunch_note: string | null;
+  breakfast_note: string | null;
+  lunchbox_notes: string | null;
+  snack_notes: string | null;
+};
+
+// Minimal recipe reference for the planner's library dropdown.
+export type RecipeRef = { id: string; title: string; tags: string[] };
+
 // Lightweight pantry row for recipe matching + "cooked this" decrements.
 export type PantrySlim = {
   id: string;

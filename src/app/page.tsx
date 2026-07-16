@@ -112,6 +112,7 @@ export default async function HomePage() {
               icon={<CalendarIcon className="h-5 w-5" />}
               title="Plan my week"
               desc="A 7-day plan from what you already have"
+              href="/plan"
             />
             <LoopRow
               icon={<CartIcon className="h-5 w-5" />}
