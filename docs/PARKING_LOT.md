@@ -29,6 +29,10 @@ Kids roster to encode (fortnightly, with per-day swap toggles):
 - Dietary hard filter: little to no chilli.
 - Also: ratings 👍/👎 feedback loop to feed back into future plans.
 
+## Planner UX (revisit)
+- [ ] Nev flagged the planner UX isn't fully satisfying — review layout density, the
+      generate → review → save flow, lunchbox access, and overall polish in a dedicated pass.
+
 ## Performance
 - [x] Co-locate Vercel functions with Supabase (Sydney) — done.
 - [ ] If still sluggish, trim redundant per-navigation auth checks.

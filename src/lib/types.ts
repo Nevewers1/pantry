@@ -95,6 +95,28 @@ export type PlanDayResult = {
 
 export type DinnerStatus = "home" | "eating_out" | "ordered_in";
 
+export type StoreTag = "coles" | "woolies" | "aldi" | "any";
+
+export const STORES: { value: StoreTag; label: string }[] = [
+  { value: "any", label: "Any" },
+  { value: "coles", label: "Coles" },
+  { value: "woolies", label: "Woolies" },
+  { value: "aldi", label: "Aldi" },
+];
+
+export type ShoppingItem = {
+  id: string;
+  meal_plan_id: string | null;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  category: string | null;
+  store: StoreTag;
+  est_price: number | null;
+  is_checked: boolean;
+  added_to_pantry: boolean;
+};
+
 export type LunchComponent = "crunch_sip" | "afternoon_tea" | "recess";
 
 export const LUNCH_COMPONENTS: { value: LunchComponent; label: string }[] = [

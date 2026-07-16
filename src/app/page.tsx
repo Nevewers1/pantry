@@ -118,6 +118,7 @@ export default async function HomePage() {
               icon={<CartIcon className="h-5 w-5" />}
               title="Shopping list"
               desc="Only what the plan needs, split by store"
+              href="/shopping"
               last
             />
           </div>
