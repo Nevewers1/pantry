@@ -88,7 +88,7 @@ export type PantrySlim = {
   unit: string | null;
 };
 
-// A parsed-but-unsaved recipe (from import or manual entry) shown for review.
+// A parsed-but-unsaved recipe (from import, suggestion, or manual entry) for review.
 export type RecipeDraft = {
   title: string;
   servings: number;
@@ -97,6 +97,7 @@ export type RecipeDraft = {
   tags: RecipeTag[];
   instructions: string;
   source_url: string | null;
+  source_type?: RecipeSourceType;
   ingredients: RecipeIngredient[];
 };
 

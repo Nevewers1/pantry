@@ -25,6 +25,7 @@ const config: Config = {
           DEFAULT: "#16A34A", // primary action (fresh green)
           hover: "#15803D",
           tint: "#F0FDF4", // subtle green surface / badges
+          soft: "#BBF7D0", // soft green border/accent
           ring: "#86EFAC",
         },
         warn: {

@@ -117,7 +117,7 @@ export function RecipeSheet({
   const sourceType: RecipeSourceType = recipe
     ? recipe.source_type
     : draft
-      ? "imported"
+      ? (draft.source_type ?? "imported")
       : "manual";
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>

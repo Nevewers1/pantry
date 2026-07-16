@@ -16,11 +16,13 @@ import {
   ClockIcon,
   LinkIcon,
   PlusIcon,
+  PlateIcon,
   StarIcon,
   XIcon,
 } from "@/components/icons";
 import { RecipeSheet } from "@/components/recipes/RecipeSheet";
 import { ImportSheet } from "@/components/recipes/ImportSheet";
+import { SuggestSheet } from "@/components/recipes/SuggestSheet";
 
 const tagLabel = (v: string) =>
   RECIPE_TAGS.find((t) => t.value === v)?.label ?? v;
@@ -48,6 +50,7 @@ export function RecipesClient({
   const [draft, setDraft] = useState<RecipeDraft | null>(null);
 
   const [importMode, setImportMode] = useState<"link" | "text" | null>(null);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
 
   const supabase = useMemo(() => createClient(), []);
@@ -245,6 +248,23 @@ export function RecipesClient({
       </header>
 
       <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
+        <button
+          onClick={() => setSuggestOpen(true)}
+          className="mb-4 flex w-full items-center gap-3 rounded-card border border-brand-soft bg-brand-tint p-4 text-left"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white">
+            <PlateIcon className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold text-ink">
+              Cook from what I have
+            </span>
+            <span className="block text-[13px] text-muted">
+              Meal ideas from your current stock — save one when you cook it.
+            </span>
+          </span>
+        </button>
+
         <div className="mb-4 flex gap-1.5">
           {[
             { v: false, label: "All" },
@@ -367,6 +387,17 @@ export function RecipesClient({
         onClose={() => setImportMode(null)}
         onParsed={(d) => {
           setImportMode(null);
+          setEditing(null);
+          setDraft(d);
+          setSheetOpen(true);
+        }}
+      />
+
+      <SuggestSheet
+        open={suggestOpen}
+        onClose={() => setSuggestOpen(false)}
+        onPick={(d) => {
+          setSuggestOpen(false);
           setEditing(null);
           setDraft(d);
           setSheetOpen(true);
