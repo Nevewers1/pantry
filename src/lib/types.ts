@@ -28,6 +28,70 @@ export const LOCATIONS: { value: StorageLocation; label: string }[] = [
 ];
 
 // Common units offered as autocomplete suggestions (free text still allowed).
+// ---- Recipes (Step 4) ------------------------------------------------------
+
+export type RecipeTag =
+  | "kid_friendly"
+  | "lunchbox"
+  | "snack"
+  | "quick"
+  | "freezer_friendly"
+  | "adults_only";
+
+export const RECIPE_TAGS: { value: RecipeTag; label: string }[] = [
+  { value: "kid_friendly", label: "Kid-friendly" },
+  { value: "lunchbox", label: "Lunchbox" },
+  { value: "snack", label: "Snack" },
+  { value: "quick", label: "Quick" },
+  { value: "freezer_friendly", label: "Freezer-friendly" },
+  { value: "adults_only", label: "Adults only" },
+];
+
+export type RecipeIngredient = {
+  id?: string;
+  recipe_id?: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  is_staple: boolean;
+};
+
+export type RecipeSourceType = "imported" | "manual" | "suggested";
+
+export type Recipe = {
+  id: string;
+  household_id: string;
+  title: string;
+  source_url: string | null;
+  source_type: RecipeSourceType;
+  servings: number;
+  prep_min: number | null;
+  cook_min: number | null;
+  tags: string[];
+  instructions: string | null;
+  image_path: string | null;
+  is_favourite: boolean;
+  times_cooked: number;
+  last_cooked_at: string | null;
+  created_at: string;
+};
+
+export type RecipeWithIngredients = Recipe & {
+  recipe_ingredients: RecipeIngredient[];
+};
+
+// A parsed-but-unsaved recipe (from import or manual entry) shown for review.
+export type RecipeDraft = {
+  title: string;
+  servings: number;
+  prep_min: number | null;
+  cook_min: number | null;
+  tags: RecipeTag[];
+  instructions: string;
+  source_url: string | null;
+  ingredients: RecipeIngredient[];
+};
+
 // A single item detected from a photo, before the user confirms it.
 export type DetectedItem = {
   name: string;

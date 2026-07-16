@@ -106,6 +106,7 @@ export default async function HomePage() {
               icon={<BookIcon className="h-5 w-5" />}
               title="Recipes"
               desc="Your regulars, plus links you paste in"
+              href="/recipes"
             />
             <LoopRow
               icon={<CalendarIcon className="h-5 w-5" />}
