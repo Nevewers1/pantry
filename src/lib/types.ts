@@ -1,4 +1,9 @@
-export type StorageLocation = "pantry" | "fridge" | "freezer";
+export type StorageLocation =
+  | "fridge"
+  | "pantry"
+  | "freezer"
+  | "fruits_veg"
+  | "snacks";
 
 export type PantryItem = {
   id: string;
@@ -15,9 +20,11 @@ export type PantryItem = {
 };
 
 export const LOCATIONS: { value: StorageLocation; label: string }[] = [
-  { value: "pantry", label: "Pantry" },
   { value: "fridge", label: "Fridge" },
+  { value: "pantry", label: "Pantry" },
   { value: "freezer", label: "Freezer" },
+  { value: "fruits_veg", label: "Fruit & veg" },
+  { value: "snacks", label: "Snacks & sweets" },
 ];
 
 // Common units offered as autocomplete suggestions (free text still allowed).

@@ -9,13 +9,15 @@ const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 
 const SYSTEM_PROMPT = `You identify grocery/food items from a photo of a shelf, fridge, freezer, or pantry.
 Return ONLY a JSON object of this exact shape, with no prose and no markdown fences:
-{"items":[{"name":"string","quantity":number,"unit":"string","category":"string","location":"pantry|fridge|freezer"}]}
+{"items":[{"name":"string","quantity":number,"unit":"string","category":"string","location":"fridge|pantry|freezer|fruits_veg|snacks"}]}
 Rules:
 - One entry per distinct product you can see. Merge obvious duplicates and set quantity to the count.
 - quantity: your best integer estimate of how many are visible (default 1).
 - unit: short (e.g. "ea", "g", "ml", "pack", "bottle"); use "ea" if unsure.
 - category: a short grocery aisle-style category (e.g. "Dairy", "Produce", "Condiments").
-- location: your best guess from context (a fridge photo -> "fridge", freezer -> "freezer", otherwise "pantry").
+- location: your best guess from context. Use one of exactly these:
+    "fridge" (general fridge shelves), "freezer" (freezer), "fruits_veg" (fresh fruit/vegetables or a crisper drawer),
+    "snacks" (snacks, confectionery, sweets, chips, biscuits), "pantry" (dry/ambient cupboard goods — the default).
 - Only include real food/drink/household-grocery items. Ignore brand marketing text, hands, and background.
 - If you can't read a label, use a sensible generic name (e.g. "Milk", "Tomatoes").`;
 
@@ -139,7 +141,9 @@ export async function POST(request: Request) {
             : 1,
         unit: (i.unit ? String(i.unit) : "ea").slice(0, 16),
         category: i.category ? String(i.category).slice(0, 40) : "",
-        location: ["pantry", "fridge", "freezer"].includes(i.location)
+        location: ["fridge", "pantry", "freezer", "fruits_veg", "snacks"].includes(
+          i.location
+        )
           ? i.location
           : "pantry",
       }));

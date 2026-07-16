@@ -233,23 +233,23 @@ export function ItemSheet({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className={labelClass}>Location</span>
-            <div className="flex gap-1 rounded-xl bg-surface p-1">
+            <label htmlFor="location" className={labelClass}>
+              Location
+            </label>
+            <select
+              id="location"
+              value={form.location}
+              onChange={(e) =>
+                set("location", e.target.value as StorageLocation)
+              }
+              className={fieldClass}
+            >
               {LOCATIONS.map((l) => (
-                <button
-                  key={l.value}
-                  type="button"
-                  onClick={() => set("location", l.value)}
-                  className={`min-h-[40px] flex-1 rounded-lg text-[14px] font-medium transition-colors ${
-                    form.location === l.value
-                      ? "bg-brand-tint text-brand"
-                      : "text-muted hover:text-ink"
-                  }`}
-                >
+                <option key={l.value} value={l.value}>
                   {l.label}
-                </button>
+                </option>
               ))}
-            </div>
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

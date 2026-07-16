@@ -107,7 +107,7 @@ export default function LoginPage() {
             required
             autoComplete="one-time-code"
             inputMode="numeric"
-            maxLength={6}
+            maxLength={8}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
             placeholder="123456"

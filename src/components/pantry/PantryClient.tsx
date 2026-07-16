@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { DetectedItem, PantryItem, StorageLocation } from "@/lib/types";
+import {
+  LOCATIONS,
+  type DetectedItem,
+  type PantryItem,
+  type StorageLocation,
+} from "@/lib/types";
 import { expiryLabel, formatQty } from "@/lib/format";
 import { fileToResizedBase64 } from "@/lib/image";
 import {
@@ -123,6 +128,26 @@ export function PantryClient({
     if (error) upsert(item); // revert on failure; realtime will also correct
   }
 
+  async function clearAll() {
+    if (items.length === 0) return;
+    if (
+      !window.confirm(
+        `Remove all ${items.length} items from your pantry? This can't be undone.`
+      )
+    )
+      return;
+    const prev = items;
+    setItems([]); // optimistic
+    const { error } = await supabase
+      .from("pantry_items")
+      .delete()
+      .eq("household_id", householdId);
+    if (error) {
+      setItems(prev); // revert
+      window.alert(`Couldn't clear the pantry: ${error.message}`);
+    }
+  }
+
   async function onPhotoChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file
@@ -209,35 +234,37 @@ export function PantryClient({
         )}
 
         {/* Filters */}
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex gap-1 rounded-xl bg-surface p-1">
-            {(["all", "pantry", "fridge", "freezer"] as const).map((loc) => (
+        <div className="mb-4 flex flex-col gap-2">
+          <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1">
+            {[{ value: "all" as const, label: "All" }, ...LOCATIONS].map((f) => (
               <button
-                key={loc}
-                onClick={() => setLocationFilter(loc)}
-                className={`min-h-[38px] rounded-lg px-3 text-[13px] font-medium capitalize transition-colors ${
-                  locationFilter === loc
-                    ? "bg-brand-tint text-brand"
-                    : "text-muted hover:text-ink"
+                key={f.value}
+                onClick={() => setLocationFilter(f.value)}
+                className={`min-h-[38px] shrink-0 rounded-lg px-3 text-[13px] font-medium transition-colors ${
+                  locationFilter === f.value
+                    ? "bg-brand text-white"
+                    : "bg-surface text-muted hover:text-ink"
                 }`}
               >
-                {loc}
+                {f.label}
               </button>
             ))}
           </div>
-          <label className="sr-only" htmlFor="sort">
-            Sort
-          </label>
-          <select
-            id="sort"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            className="min-h-[38px] rounded-xl border border-border bg-surface px-2 text-[13px] font-medium text-ink"
-          >
-            <option value="expiry">Expiry first</option>
-            <option value="name">Name</option>
-            <option value="updated">Recently updated</option>
-          </select>
+          <div className="flex justify-end">
+            <label className="sr-only" htmlFor="sort">
+              Sort
+            </label>
+            <select
+              id="sort"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="min-h-[38px] rounded-xl border border-border bg-surface px-2 text-[13px] font-medium text-ink"
+            >
+              <option value="expiry">Expiry first</option>
+              <option value="name">Name</option>
+              <option value="updated">Recently updated</option>
+            </select>
+          </div>
         </div>
 
         {visible.length === 0 ? (
@@ -264,6 +291,17 @@ export function PantryClient({
               />
             ))}
           </ul>
+        )}
+
+        {items.length > 0 && (
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={clearAll}
+              className="text-[13px] text-faint underline-offset-4 hover:text-danger hover:underline"
+            >
+              Clear all items
+            </button>
+          </div>
         )}
       </main>
 
@@ -331,7 +369,10 @@ function ItemRow({
           )}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
-          <span className="capitalize">{item.location}</span>
+          <span>
+            {LOCATIONS.find((l) => l.value === item.location)?.label ??
+              item.location}
+          </span>
           {item.category && <span>· {item.category}</span>}
           {exp && (
             <span className={`flex items-center gap-1 ${exp.tone}`}>
