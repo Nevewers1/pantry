@@ -6,6 +6,7 @@ import {
   type RecipeWithIngredients,
 } from "@/lib/types";
 import { ClockIcon, XIcon } from "@/components/icons";
+import { RecipePhoto } from "@/components/recipes/RecipePhoto";
 
 const typeLabel = (v: string) =>
   MEAL_TYPES.find((t) => t.value === v)?.label ?? v;
@@ -63,6 +64,14 @@ export function RecipeView({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          {recipe.image_url && (
+            <RecipePhoto
+              url={recipe.image_url}
+              className="h-44 w-full rounded-xl"
+              iconClassName="h-9 w-9"
+            />
+          )}
+
           {recipe.tags?.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {recipe.tags.map((t) => (

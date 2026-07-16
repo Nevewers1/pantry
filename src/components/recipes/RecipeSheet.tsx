@@ -14,6 +14,7 @@ import {
 } from "@/lib/types";
 import { namesMatch } from "@/lib/normalize";
 import { PlusIcon, StarIcon, TrashIcon, XIcon } from "@/components/icons";
+import { RecipePhoto } from "@/components/recipes/RecipePhoto";
 
 type Form = {
   title: string;
@@ -23,6 +24,7 @@ type Form = {
   tags: RecipeTag[];
   meal_type: MealType;
   instructions: string;
+  image_url: string;
   is_favourite: boolean;
   ingredients: RecipeIngredient[];
 };
@@ -48,6 +50,7 @@ function toForm(
       tags: (recipe.tags ?? []) as RecipeTag[],
       meal_type: recipe.meal_type ?? "full",
       instructions: recipe.instructions ?? "",
+      image_url: recipe.image_url ?? "",
       is_favourite: recipe.is_favourite,
       ingredients: recipe.recipe_ingredients?.length
         ? recipe.recipe_ingredients
@@ -63,6 +66,7 @@ function toForm(
       tags: draft.tags ?? [],
       meal_type: draft.meal_type ?? "full",
       instructions: draft.instructions ?? "",
+      image_url: draft.image_url ?? "",
       is_favourite: false,
       ingredients: draft.ingredients?.length
         ? draft.ingredients
@@ -77,6 +81,7 @@ function toForm(
     tags: [],
     meal_type: "full",
     instructions: "",
+    image_url: "",
     is_favourite: false,
     ingredients: [blankIngredient()],
   };
@@ -166,6 +171,7 @@ export function RecipeSheet({
       tags: form.tags,
       meal_type: form.meal_type,
       instructions: form.instructions.trim() || null,
+      image_url: form.image_url.trim() || null,
       is_favourite: form.is_favourite,
     };
 
@@ -314,6 +320,32 @@ export function RecipeSheet({
               placeholder="e.g. Weeknight bolognese"
               className={field}
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="image_url" className={label}>
+              Photo URL <span className="font-normal text-faint">(optional)</span>
+            </label>
+            <div className="flex items-center gap-3">
+              <RecipePhoto
+                url={form.image_url.trim() || null}
+                className="h-16 w-16 shrink-0 rounded-xl"
+                iconClassName="h-6 w-6"
+              />
+              <input
+                id="image_url"
+                type="url"
+                inputMode="url"
+                value={form.image_url}
+                onChange={(e) => set("image_url", e.target.value)}
+                placeholder="Paste an image link…"
+                className={`${field} min-w-0 flex-1`}
+              />
+            </div>
+            <p className="text-[12px] text-faint">
+              Imported recipes fill this in automatically. Paste a link to use your
+              own — leave blank for the plain badge.
+            </p>
           </div>
 
           <div className="grid grid-cols-3 gap-3">

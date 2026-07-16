@@ -21,6 +21,7 @@ import {
   XIcon,
 } from "@/components/icons";
 import { RecipeSheet } from "@/components/recipes/RecipeSheet";
+import { RecipePhoto } from "@/components/recipes/RecipePhoto";
 import { ImportSheet } from "@/components/recipes/ImportSheet";
 import { SuggestSheet } from "@/components/recipes/SuggestSheet";
 
@@ -309,13 +310,33 @@ export function RecipesClient({
                     setEditing(r);
                     setSheetOpen(true);
                   }}
-                  className="flex w-full items-start gap-3 rounded-card border border-border bg-surface p-4 text-left hover:border-brand-soft"
+                  className="w-full overflow-hidden rounded-card border border-border bg-surface text-left shadow-soft transition hover:shadow-hero"
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-medium text-ink">
+                  <div className="relative">
+                    <RecipePhoto
+                      url={r.image_url}
+                      className="h-36 w-full"
+                      iconClassName="h-9 w-9"
+                    />
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => toggleFav(r, e)}
+                      aria-label={
+                        r.is_favourite ? "Unfavourite" : "Mark favourite"
+                      }
+                      className={`absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-surface/90 shadow-soft backdrop-blur ${
+                        r.is_favourite ? "text-brand" : "text-faint hover:text-ink"
+                      }`}
+                    >
+                      <StarIcon className="h-5 w-5" filled={r.is_favourite} />
+                    </span>
+                  </div>
+                  <div className="p-4">
+                    <p className="text-[16px] font-semibold leading-snug text-ink">
                       {r.title}
                     </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-muted">
                       <span>
                         {r.servings} {r.servings === 1 ? "serve" : "serves"}
                       </span>
@@ -328,7 +349,9 @@ export function RecipesClient({
                       {total > 0 && (
                         <span
                           className={
-                            have === total ? "text-brand" : "text-muted"
+                            have === total
+                              ? "font-medium text-brand"
+                              : "text-muted"
                           }
                         >
                           have {have}/{total}
@@ -336,7 +359,7 @@ export function RecipesClient({
                       )}
                     </div>
                     {r.tags?.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
                         {r.tags.slice(0, 3).map((t) => (
                           <span
                             key={t}
@@ -348,19 +371,6 @@ export function RecipesClient({
                       </div>
                     )}
                   </div>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => toggleFav(r, e)}
-                    aria-label={
-                      r.is_favourite ? "Unfavourite" : "Mark favourite"
-                    }
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                      r.is_favourite ? "text-brand" : "text-faint hover:text-ink"
-                    }`}
-                  >
-                    <StarIcon className="h-5 w-5" filled={r.is_favourite} />
-                  </span>
                 </button>
               );
             })}

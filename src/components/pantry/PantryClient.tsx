@@ -296,7 +296,7 @@ export function PantryClient({
             }}
           />
         ) : (
-          <ul className="overflow-hidden rounded-card border border-border bg-surface">
+          <ul className="overflow-hidden rounded-card border border-border bg-surface shadow-soft">
             {visible.map((item, idx) => (
               <ItemRow
                 key={item.id}

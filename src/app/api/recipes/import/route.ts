@@ -40,13 +40,13 @@ function extractJson(text: string): Partial<RecipeDraft> | null {
 }
 
 // Pull a JSON-LD Recipe object out of page HTML, if present (cleaner than text).
-function extractJsonLdRecipe(html: string): string | null {
+function findJsonLdRecipe(html: string): Record<string, unknown> | null {
   const blocks = html.match(
     /<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi
   );
   if (!blocks) return null;
   for (const block of blocks) {
-    const json = block.replace(/<[^>]+>/g, "");
+    const json = block.replace(/<script[^>]*>/i, "").replace(/<\/script>/i, "");
     try {
       const parsed = JSON.parse(json);
       const nodes = Array.isArray(parsed)
@@ -57,13 +57,57 @@ function extractJsonLdRecipe(html: string): string | null {
         const isRecipe = Array.isArray(type)
           ? type.includes("Recipe")
           : type === "Recipe";
-        if (isRecipe) return JSON.stringify(node).slice(0, 12000);
+        if (isRecipe) return node as Record<string, unknown>;
       }
     } catch {
       /* try next block */
     }
   }
   return null;
+}
+
+// A recipe's "image" field can be a string, an array, or an ImageObject.
+function pickImageUrl(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) {
+    for (const x of raw) {
+      const u = pickImageUrl(x);
+      if (u) return u;
+    }
+    return null;
+  }
+  if (typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    return pickImageUrl(o.url ?? o["@id"] ?? null);
+  }
+  return null;
+}
+
+// Fall back to the page's social-share image.
+function ogImage(html: string): string | null {
+  const patterns = [
+    /<meta[^>]+property=["']og:image(?::url)?["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']/i,
+    /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+  ];
+  for (const p of patterns) {
+    const m = html.match(p);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
+// Resolve relative image paths against the page URL; drop anything unparseable
+// or non-http(s) so we never store junk.
+function absolutize(src: string | null, base: string): string | null {
+  if (!src) return null;
+  try {
+    const u = new URL(src.trim(), base);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function htmlToText(html: string): string {
@@ -104,6 +148,7 @@ export async function POST(request: Request) {
 
   let content = "";
   let sourceUrl: string | null = null;
+  let imageUrl: string | null = null;
 
   if (url) {
     sourceUrl = url;
@@ -118,7 +163,9 @@ export async function POST(request: Request) {
         );
       }
       const html = await res.text();
-      content = extractJsonLdRecipe(html) ?? htmlToText(html);
+      const node = findJsonLdRecipe(html);
+      content = node ? JSON.stringify(node).slice(0, 12000) : htmlToText(html);
+      imageUrl = absolutize(pickImageUrl(node?.image) ?? ogImage(html), url);
     } catch {
       return NextResponse.json(
         { error: "Couldn't reach that URL. Try pasting the recipe text instead." },
@@ -194,6 +241,7 @@ export async function POST(request: Request) {
       tags,
       instructions: parsed.instructions ? String(parsed.instructions) : "",
       source_url: sourceUrl,
+      image_url: imageUrl,
       ingredients,
     };
 

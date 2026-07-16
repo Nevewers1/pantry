@@ -13,7 +13,40 @@ body {
   color: theme("colors.ink");
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Tighter tracking on headings for a more considered, app-like feel. */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+/* On-brand text selection. */
+::selection {
+  background: theme("colors.brand.soft");
+  color: theme("colors.ink");
+}
+
+/* Gentle default transition on interactive surfaces (respects reduced-motion). */
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.08s ease;
+}
+
+/* Subtle press feedback on primary buttons. */
+button:active {
+  transform: translateY(0.5px);
 }
 
 /* Respect users who prefer reduced motion (accessibility floor). */

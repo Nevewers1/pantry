@@ -11,6 +11,7 @@ import {
 } from "@/lib/types";
 import { UseSoonStrip } from "@/components/UseSoonStrip";
 import { RecipeView } from "@/components/recipes/RecipeView";
+import { RecipePhoto } from "@/components/recipes/RecipePhoto";
 import { CheckIcon, LeafIcon, LogoutIcon, XIcon } from "@/components/icons";
 import { signOut } from "@/app/actions";
 
@@ -69,6 +70,7 @@ export function TodayClient({
   const [expiring, setExpiring] = useState<ExpiringItem[]>([]);
   const [day, setDay] = useState<PlanDay | null>(null);
   const [titles, setTitles] = useState<Map<string, string>>(new Map());
+  const [images, setImages] = useState<Map<string, string>>(new Map());
   const [lunchboxes, setLunchboxes] = useState<LbItem[]>([]);
   const [pantry, setPantry] = useState<PantryRow[]>([]);
   const [toast, setToast] = useState<Toast>(null);
@@ -129,11 +131,16 @@ export function TodayClient({
         if (ids.length) {
           const { data: recs } = await supabase
             .from("recipes")
-            .select("id, title")
+            .select("id, title, image_url")
             .in("id", ids);
           const m = new Map<string, string>();
-          (recs ?? []).forEach((r) => m.set(r.id as string, r.title as string));
+          const im = new Map<string, string>();
+          (recs ?? []).forEach((r) => {
+            m.set(r.id as string, r.title as string);
+            if (r.image_url) im.set(r.id as string, r.image_url as string);
+          });
           setTitles(m);
+          setImages(im);
         }
       }
     } else {
@@ -271,6 +278,9 @@ export function TodayClient({
     day: "numeric",
     month: "long",
   });
+  const hour = today.getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   const dinnerText = (() => {
     if (!day) return null;
@@ -311,9 +321,12 @@ export function TodayClient({
       </header>
 
       <main className="mx-auto max-w-lg px-5 pb-28 pt-6">
-        <div className="mb-5">
-          <p className="text-sm text-muted">Hi {displayName}</p>
-          <h1 className="text-2xl font-semibold tracking-tightish text-ink">
+        <div className="mb-6">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-brand">
+            {greeting}
+            {displayName ? `, ${displayName}` : ""}
+          </p>
+          <h1 className="mt-1 text-[30px] font-bold leading-[1.1] tracking-tightest text-ink">
             {dateLabel}
           </h1>
         </div>
@@ -333,7 +346,7 @@ export function TodayClient({
               Open planner
             </Link>
           </div>
-          <div className="rounded-card border border-border bg-surface p-4">
+          <div className="rounded-card border border-border bg-surface p-5 shadow-hero">
             {loading ? (
               <p className="text-sm text-muted">Loading…</p>
             ) : !day ? (
@@ -345,6 +358,20 @@ export function TodayClient({
               </div>
             ) : (
               <>
+                {day.dinner_recipe_id &&
+                  images.get(day.dinner_recipe_id) && (
+                    <button
+                      onClick={() => openRecipe(day.dinner_recipe_id)}
+                      className="mb-4 block w-full"
+                      aria-label={`View ${dinnerText}`}
+                    >
+                      <RecipePhoto
+                        url={images.get(day.dinner_recipe_id)}
+                        className="h-40 w-full rounded-xl"
+                        iconClassName="h-9 w-9"
+                      />
+                    </button>
+                  )}
                 {day.dinner_recipe_id ? (
                   <button
                     onClick={() => openRecipe(day.dinner_recipe_id)}
@@ -408,7 +435,7 @@ export function TodayClient({
               {([1, 2] as const).map((slot) => {
                 const mine = lunchboxes.filter((l) => l.child_slot === slot);
                 return (
-                  <div key={slot} className="rounded-card border border-border bg-surface p-4">
+                  <div key={slot} className="rounded-card border border-border bg-surface p-4 shadow-soft">
                     <p className="mb-2 text-[15px] font-semibold text-ink">
                       {childNames[slot - 1]}
                     </p>

@@ -25,20 +25,25 @@ export function BottomNav() {
   if (HIDE_ON.some((p) => pathname.startsWith(p))) return null;
 
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur">
-      <div className="mx-auto flex max-w-lg items-stretch justify-around">
+    <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+      <div className="pointer-events-auto mx-4 flex w-full max-w-md items-center justify-around rounded-full border border-border bg-surface/95 px-2 py-1.5 shadow-nav backdrop-blur-md">
         {TABS.map(({ href, label, Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <Link
               key={href}
               href={href}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
-                active ? "text-brand" : "text-muted"
-              }`}
+              aria-current={active ? "page" : undefined}
+              className="flex flex-1 flex-col items-center"
             >
-              <Icon className="h-5 w-5" />
-              {label}
+              <span
+                className={`flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition-colors ${
+                  active ? "bg-brand text-white" : "text-faint hover:text-muted"
+                }`}
+              >
+                <Icon className="h-[20px] w-[20px]" />
+                {active && <span>{label}</span>}
+              </span>
             </Link>
           );
         })}

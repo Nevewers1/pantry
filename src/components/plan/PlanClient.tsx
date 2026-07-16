@@ -488,7 +488,7 @@ export function PlanClient({
 
       <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
         {uberCount !== null && (
-          <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface px-4 py-3">
+          <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface shadow-soft px-4 py-3">
             <span className="text-[14px] text-ink">Ordered in this month</span>
             <span
               className={`rounded-full px-2.5 py-0.5 text-[14px] font-semibold ${
@@ -503,7 +503,7 @@ export function PlanClient({
         )}
 
         {/* Week selector */}
-        <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface p-3">
+        <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface shadow-soft p-3">
           <button
             onClick={() => setWeekStart(addDays(weekStart, -7))}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-bg hover:text-ink"
@@ -526,7 +526,7 @@ export function PlanClient({
         </div>
 
         {/* Kids cycle anchor */}
-        <div className="mb-4 flex flex-col gap-1.5 rounded-card border border-border bg-surface p-4">
+        <div className="mb-4 flex flex-col gap-1.5 rounded-card border border-border bg-surface shadow-soft p-4">
           <label htmlFor="anchor" className="text-[13px] font-medium text-ink">
             Kids cycle start <span className="text-faint">(a Monday they arrive)</span>
           </label>
@@ -552,7 +552,7 @@ export function PlanClient({
         </div>
 
         {/* Day toggles (for generating) */}
-        <div className="mb-4 overflow-hidden rounded-card border border-border bg-surface">
+        <div className="mb-4 overflow-hidden rounded-card border border-border bg-surface shadow-soft">
           {dates.map((d, i) => {
             const here = kidsFor(d);
             return (
@@ -606,7 +606,7 @@ export function PlanClient({
               return (
                 <div
                   key={day.date}
-                  className="rounded-card border border-border bg-surface p-4"
+                  className="rounded-card border border-border bg-surface shadow-soft p-4"
                 >
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-[14px] font-semibold text-ink">

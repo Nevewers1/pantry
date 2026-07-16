@@ -43,7 +43,7 @@ export function UseSoonStrip({ items }: { items: ExpiringItem[] }) {
       </div>
 
       {items.length === 0 ? (
-        <div className="flex items-center gap-3 rounded-card border border-border bg-surface p-4">
+        <div className="flex items-center gap-3 rounded-card border border-border bg-surface p-4 shadow-soft">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-brand">
             <LeafIcon className="h-5 w-5" />
           </div>
@@ -64,7 +64,7 @@ export function UseSoonStrip({ items }: { items: ExpiringItem[] }) {
             return (
               <div
                 key={it.id}
-                className="min-w-[10rem] snap-start rounded-card border border-border bg-surface p-4"
+                className="min-w-[10rem] snap-start rounded-card border border-border bg-surface p-4 shadow-soft"
               >
                 <p className="truncate text-[15px] font-medium text-ink">
                   {it.name}

@@ -190,7 +190,7 @@ export function ShoppingClient({
 
       <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
         {/* Budget */}
-        <div className="mb-4 rounded-card border border-border bg-surface p-4">
+        <div className="mb-4 rounded-card border border-border bg-surface shadow-soft p-4">
           <div className="flex items-center justify-between gap-3">
             <label htmlFor="budget" className="text-[14px] text-ink">
               Weekly budget
@@ -261,7 +261,7 @@ export function ShoppingClient({
                 <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted">
                   {g.store.label}
                 </h2>
-                <ul className="overflow-hidden rounded-card border border-border bg-surface">
+                <ul className="overflow-hidden rounded-card border border-border bg-surface shadow-soft">
                   {g.items.map((it, idx) => (
                     <li
                       key={it.id}

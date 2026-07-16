@@ -79,6 +79,7 @@ export type Recipe = {
   meal_type: MealType;
   instructions: string | null;
   image_path: string | null;
+  image_url: string | null;
   is_favourite: boolean;
   times_cooked: number;
   last_cooked_at: string | null;
@@ -175,6 +176,7 @@ export type RecipeDraft = {
   instructions: string;
   source_url: string | null;
   source_type?: RecipeSourceType;
+  image_url?: string | null;
   ingredients: RecipeIngredient[];
 };
 
