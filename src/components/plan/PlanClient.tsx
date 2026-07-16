@@ -3,14 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { PlanDayResult, RecipeRef } from "@/lib/types";
+import type { DinnerStatus, PlanDayResult, RecipeRef } from "@/lib/types";
 import {
   ArrowLeftIcon,
   CalendarIcon,
   ChevronRightIcon,
 } from "@/components/icons";
 
-type Day = PlanDayResult & { away: boolean };
+type Day = PlanDayResult & { away: boolean; dinner_status: DinnerStatus };
+
+const DINNER_STATUSES: { value: DinnerStatus; label: string }[] = [
+  { value: "home", label: "Cook" },
+  { value: "eating_out", label: "Eat out" },
+  { value: "ordered_in", label: "Order in" },
+];
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -73,6 +79,7 @@ export function PlanClient({
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [uberCount, setUberCount] = useState<number | null>(null);
 
   const dates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -119,6 +126,7 @@ export function PlanClient({
         date: d.date as string,
         kids_present: Boolean(d.kids_present),
         away: Boolean(d.away),
+        dinner_status: ((d.dinner_status as DinnerStatus) ?? "home"),
         dinner_recipe_id: (d.dinner_recipe_id as string | null) ?? null,
         dinner_note: (d.dinner_note as string | null) ?? null,
         lunch_note: (d.lunch_note as string | null) ?? null,
@@ -140,6 +148,24 @@ export function PlanClient({
   useEffect(() => {
     loadSaved(ymd(weekStart));
   }, [weekStart, loadSaved]);
+
+  // Count "ordered in" dinners in the current calendar month.
+  const loadUber = useCallback(async () => {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const { count } = await supabase
+      .from("meal_plan_days")
+      .select("id", { count: "exact", head: true })
+      .gte("date", ymd(first))
+      .lte("date", ymd(last))
+      .eq("dinner_status", "ordered_in");
+    setUberCount(count ?? 0);
+  }, [supabase]);
+
+  useEffect(() => {
+    loadUber();
+  }, [loadUber]);
 
   async function saveAnchor(value: string) {
     setAnchor(value || null);
@@ -165,7 +191,13 @@ export function PlanClient({
         setError(data?.error ?? "Couldn't build the plan.");
         return;
       }
-      setPlan((data.days as PlanDayResult[]).map((d) => ({ ...d, away: false })));
+      setPlan(
+        (data.days as PlanDayResult[]).map((d) => ({
+          ...d,
+          away: false,
+          dinner_status: "home" as DinnerStatus,
+        }))
+      );
     } catch {
       setError("Something went wrong. Try again.");
     } finally {
@@ -202,13 +234,15 @@ export function PlanClient({
       return;
     }
 
+    const cookingHome = (d: Day) => !d.away && d.dinner_status === "home";
     const rows = plan.map((d) => ({
       meal_plan_id: mp.id,
       date: d.date,
       kids_present: d.kids_present,
       away: d.away,
-      dinner_recipe_id: d.away ? null : d.dinner_recipe_id,
-      dinner_note: d.away ? null : d.dinner_note,
+      dinner_status: d.away ? "home" : d.dinner_status,
+      dinner_recipe_id: cookingHome(d) ? d.dinner_recipe_id : null,
+      dinner_note: cookingHome(d) ? d.dinner_note : null,
       lunch_note: d.away ? null : d.lunch_note,
       breakfast_note: d.away ? null : d.breakfast_note,
       lunchbox_notes: d.away ? null : d.lunchbox_notes,
@@ -220,6 +254,7 @@ export function PlanClient({
       return;
     }
     setSaved(true);
+    loadUber();
   }
 
   return (
@@ -240,6 +275,21 @@ export function PlanClient({
       </header>
 
       <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
+        {uberCount !== null && (
+          <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface px-4 py-3">
+            <span className="text-[14px] text-ink">Ordered in this month</span>
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-[14px] font-semibold ${
+                uberCount === 0
+                  ? "bg-brand-tint text-brand"
+                  : "bg-amber-tint text-amber"
+              }`}
+            >
+              {uberCount}
+            </span>
+          </div>
+        )}
+
         {/* Week selector */}
         <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface p-3">
           <button
@@ -350,32 +400,64 @@ export function PlanClient({
                         <p className="mb-1 text-[12px] font-medium uppercase tracking-wide text-muted">
                           Dinner
                         </p>
-                        {recipes.length > 0 && (
-                          <select
-                            value={day.dinner_recipe_id ?? ""}
-                            onChange={(e) =>
-                              setDay(i, {
-                                dinner_recipe_id: e.target.value || null,
-                                dinner_note: e.target.value ? null : day.dinner_note,
-                              })
-                            }
-                            className={`${inputCls} mb-1`}
-                          >
-                            <option value="">Custom / note below</option>
-                            {recipes.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.title}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        {!day.dinner_recipe_id && (
-                          <input
-                            value={day.dinner_note ?? ""}
-                            onChange={(e) => setDay(i, { dinner_note: e.target.value })}
-                            placeholder="Dinner idea"
-                            className={inputCls}
-                          />
+                        <div className="mb-1.5 flex gap-1.5">
+                          {DINNER_STATUSES.map((s) => {
+                            const on = day.dinner_status === s.value;
+                            const tone =
+                              s.value === "ordered_in"
+                                ? "bg-amber-tint text-amber"
+                                : "bg-brand-tint text-brand";
+                            return (
+                              <button
+                                key={s.value}
+                                type="button"
+                                onClick={() => setDay(i, { dinner_status: s.value })}
+                                className={`min-h-[34px] rounded-lg px-2.5 text-[12px] font-medium ${
+                                  on ? tone : "bg-bg text-muted hover:text-ink"
+                                }`}
+                              >
+                                {s.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {day.dinner_status === "home" ? (
+                          <>
+                            {recipes.length > 0 && (
+                              <select
+                                value={day.dinner_recipe_id ?? ""}
+                                onChange={(e) =>
+                                  setDay(i, {
+                                    dinner_recipe_id: e.target.value || null,
+                                    dinner_note: e.target.value ? null : day.dinner_note,
+                                  })
+                                }
+                                className={`${inputCls} mb-1`}
+                              >
+                                <option value="">Custom / note below</option>
+                                {recipes.map((r) => (
+                                  <option key={r.id} value={r.id}>
+                                    {r.title}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {!day.dinner_recipe_id && (
+                              <input
+                                value={day.dinner_note ?? ""}
+                                onChange={(e) => setDay(i, { dinner_note: e.target.value })}
+                                placeholder="Dinner idea"
+                                className={inputCls}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-[14px] text-muted">
+                            {day.dinner_status === "ordered_in"
+                              ? "Ordering in (Uber Eats)"
+                              : "Eating out"}
+                          </p>
                         )}
                       </div>
 

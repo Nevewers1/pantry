@@ -93,6 +93,8 @@ export type PlanDayResult = {
   snack_notes: string | null;
 };
 
+export type DinnerStatus = "home" | "eating_out" | "ordered_in";
+
 // Minimal recipe reference for the planner's library dropdown.
 export type RecipeRef = { id: string; title: string; tags: string[] };
 
