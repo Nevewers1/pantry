@@ -36,6 +36,7 @@ export function PantryClient({
   const [items, setItems] = useState<PantryItem[]>(initialItems);
   const [locationFilter, setLocationFilter] = useState<LocationFilter>("all");
   const [sort, setSort] = useState<SortKey>("expiry");
+  const [search, setSearch] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<PantryItem | null>(null);
 
@@ -101,10 +102,12 @@ export function PantryClient({
   );
 
   const visible = useMemo(() => {
-    const list =
-      locationFilter === "all"
-        ? items
-        : items.filter((i) => i.location === locationFilter);
+    const q = search.trim().toLowerCase();
+    const list = items.filter(
+      (i) =>
+        (locationFilter === "all" || i.location === locationFilter) &&
+        (!q || i.name.toLowerCase().includes(q))
+    );
 
     return [...list].sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name);
@@ -116,7 +119,7 @@ export function PantryClient({
       if (!b.expiry_date) return -1;
       return a.expiry_date.localeCompare(b.expiry_date);
     });
-  }, [items, locationFilter, sort]);
+  }, [items, locationFilter, sort, search]);
 
   async function adjustQty(item: PantryItem, delta: number) {
     const q = Math.max(0, Math.round((item.quantity + delta) * 100) / 100);
@@ -233,6 +236,14 @@ export function PantryClient({
           </div>
         )}
 
+        {/* Search */}
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search the pantry…"
+          className="mb-3 min-h-tap w-full rounded-xl border border-border bg-surface px-4 text-[15px] text-ink placeholder:text-faint focus:border-brand"
+        />
+
         {/* Filters */}
         <div className="mb-4 flex flex-col gap-2">
           <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1">
@@ -267,7 +278,16 @@ export function PantryClient({
           </div>
         </div>
 
-        {visible.length === 0 ? (
+        {visible.length === 0 && search.trim() ? (
+          <div className="rounded-card border border-dashed border-border bg-surface px-6 py-10 text-center">
+            <p className="text-[15px] font-medium text-ink">
+              No items match &ldquo;{search.trim()}&rdquo;
+            </p>
+            <p className="mt-1 text-sm text-muted">
+              You&apos;re out of it, or it&apos;s not tracked yet.
+            </p>
+          </div>
+        ) : visible.length === 0 ? (
           <EmptyState
             filtered={locationFilter !== "all" || items.length > 0}
             onAdd={() => {

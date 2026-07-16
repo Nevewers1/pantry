@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { namesMatch } from "@/lib/normalize";
 import { LUNCH_COMPONENTS, type LunchboxItem } from "@/lib/types";
 import { UseSoonStrip } from "@/components/UseSoonStrip";
-import { LeafIcon, LogoutIcon } from "@/components/icons";
+import { CheckIcon, LeafIcon, LogoutIcon, XIcon } from "@/components/icons";
 import { signOut } from "@/app/actions";
 
 type ExpiringItem = {
@@ -15,17 +16,21 @@ type ExpiringItem = {
   quantity: number | null;
   unit: string | null;
 };
-
 type PlanDay = {
+  id: string;
   away: boolean;
   kids_present: boolean;
   dinner_status: string;
+  dinner_cooked: boolean;
   dinner_recipe_id: string | null;
   dinner_side_ids: string[] | null;
   dinner_note: string | null;
   lunch_note: string | null;
   breakfast_note: string | null;
 };
+type PantryRow = { id: string; name: string; quantity: number; unit: string | null };
+type LbItem = LunchboxItem & { id: string; packed: boolean };
+type Toast = { msg: string; undo: () => Promise<void> } | null;
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -59,7 +64,9 @@ export function TodayClient({
   const [expiring, setExpiring] = useState<ExpiringItem[]>([]);
   const [day, setDay] = useState<PlanDay | null>(null);
   const [titles, setTitles] = useState<Map<string, string>>(new Map());
-  const [lunchboxes, setLunchboxes] = useState<LunchboxItem[]>([]);
+  const [lunchboxes, setLunchboxes] = useState<LbItem[]>([]);
+  const [pantry, setPantry] = useState<PantryRow[]>([]);
+  const [toast, setToast] = useState<Toast>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +82,11 @@ export function TodayClient({
       .limit(12);
     setExpiring((exp ?? []) as ExpiringItem[]);
 
+    const { data: allPantry } = await supabase
+      .from("pantry_items")
+      .select("id, name, quantity, unit");
+    setPantry((allPantry ?? []) as PantryRow[]);
+
     const { data: mp } = await supabase
       .from("meal_plans")
       .select("id")
@@ -86,7 +98,7 @@ export function TodayClient({
       const { data: d } = await supabase
         .from("meal_plan_days")
         .select(
-          "away, kids_present, dinner_status, dinner_recipe_id, dinner_side_ids, dinner_note, lunch_note, breakfast_note"
+          "id, away, kids_present, dinner_status, dinner_cooked, dinner_recipe_id, dinner_side_ids, dinner_note, lunch_note, breakfast_note"
         )
         .eq("meal_plan_id", mp.id)
         .eq("date", todayStr)
@@ -116,7 +128,7 @@ export function TodayClient({
       .from("lunchbox_items")
       .select("*")
       .eq("date", todayStr);
-    setLunchboxes((lbs ?? []) as LunchboxItem[]);
+    setLunchboxes((lbs ?? []) as LbItem[]);
 
     setLoading(false);
   }, [supabase, householdId, today, todayStr]);
@@ -124,6 +136,119 @@ export function TodayClient({
   useEffect(() => {
     load();
   }, [load]);
+
+  // ---- Cook tonight's dinner (deduct primary + sides) ----------------------
+  async function cookDinner() {
+    if (!day || day.dinner_cooked) return;
+    const recipeIds = [
+      day.dinner_recipe_id,
+      ...(day.dinner_side_ids ?? []),
+    ].filter(Boolean) as string[];
+    if (!recipeIds.length) return;
+
+    const { data: ings } = await supabase
+      .from("recipe_ingredients")
+      .select("name, quantity, unit, is_staple")
+      .in("recipe_id", recipeIds);
+
+    const sums = new Map<string, number>();
+    (ings ?? [])
+      .filter((i) => !i.is_staple && i.name)
+      .forEach((i) => {
+        const p = pantry.find((x) => namesMatch(i.name as string, x.name));
+        if (!p) return;
+        let amt = 1;
+        const iq = i.quantity as number | null;
+        if (iq && Number.isFinite(iq)) {
+          const iu = ((i.unit as string) ?? "").trim().toLowerCase();
+          const pu = (p.unit ?? "").trim().toLowerCase();
+          if (iu === pu) amt = iq;
+        }
+        sums.set(p.id, (sums.get(p.id) ?? 0) + amt);
+      });
+
+    const changes = [...sums.entries()].map(([id, dec]) => {
+      const p = pantry.find((x) => x.id === id)!;
+      return { id, old: p.quantity, next: Math.max(0, Math.round((p.quantity - dec) * 100) / 100) };
+    });
+
+    await Promise.all(
+      changes.map((c) =>
+        supabase.from("pantry_items").update({ quantity: c.next }).eq("id", c.id)
+      )
+    );
+    setPantry((prev) =>
+      prev.map((p) => {
+        const c = changes.find((x) => x.id === p.id);
+        return c ? { ...p, quantity: c.next } : p;
+      })
+    );
+    await supabase
+      .from("meal_plan_days")
+      .update({ dinner_cooked: true })
+      .eq("id", day.id);
+    setDay({ ...day, dinner_cooked: true });
+
+    const { data: log } = await supabase
+      .from("consumption_log")
+      .insert({
+        household_id: householdId,
+        recipe_id: day.dinner_recipe_id,
+        note: "Cooked tonight's dinner",
+      })
+      .select("id")
+      .single();
+    const logId = log?.id as string | undefined;
+
+    setToast({
+      msg: `Dinner cooked — ${changes.length} pantry item${
+        changes.length === 1 ? "" : "s"
+      } updated`,
+      undo: async () => {
+        await Promise.all(
+          changes.map((c) =>
+            supabase.from("pantry_items").update({ quantity: c.old }).eq("id", c.id)
+          )
+        );
+        setPantry((prev) =>
+          prev.map((p) => {
+            const c = changes.find((x) => x.id === p.id);
+            return c ? { ...p, quantity: c.old } : p;
+          })
+        );
+        await supabase
+          .from("meal_plan_days")
+          .update({ dinner_cooked: false })
+          .eq("id", day.id);
+        setDay((cur) => (cur ? { ...cur, dinner_cooked: false } : cur));
+        if (logId) await supabase.from("consumption_log").delete().eq("id", logId);
+        setToast(null);
+      },
+    });
+  }
+
+  // ---- Lunchbox: edit name, then pack (deduct matched pantry) ---------------
+  function editLb(id: string, name: string) {
+    setLunchboxes((arr) => arr.map((l) => (l.id === id ? { ...l, name } : l)));
+  }
+  async function packLb(item: LbItem) {
+    if (item.packed) return;
+    await supabase
+      .from("lunchbox_items")
+      .update({ name: item.name.trim(), packed: true })
+      .eq("id", item.id);
+    setLunchboxes((arr) =>
+      arr.map((l) => (l.id === item.id ? { ...l, packed: true } : l))
+    );
+    const p = pantry.find((x) => namesMatch(item.name, x.name));
+    if (p) {
+      const next = Math.max(0, Math.round((p.quantity - (item.quantity ?? 1)) * 100) / 100);
+      await supabase.from("pantry_items").update({ quantity: next }).eq("id", p.id);
+      setPantry((prev) =>
+        prev.map((x) => (x.id === p.id ? { ...x, quantity: next } : x))
+      );
+    }
+  }
 
   const dateLabel = today.toLocaleDateString("en-AU", {
     weekday: "long",
@@ -139,10 +264,11 @@ export function TodayClient({
     if (day.dinner_recipe_id) return titles.get(day.dinner_recipe_id) ?? "Dinner";
     return day.dinner_note ?? "—";
   })();
-
   const sideTitles = (day?.dinner_side_ids ?? [])
     .map((id) => titles.get(id))
     .filter(Boolean) as string[];
+  const canCook =
+    !!day && !day.away && day.dinner_status === "home" && !!day.dinner_recipe_id;
 
   return (
     <div className="min-h-screen">
@@ -181,7 +307,7 @@ export function TodayClient({
 
         <UseSoonStrip items={expiring} />
 
-        {/* Today's dinner */}
+        {/* Tonight's dinner */}
         <section className="mt-8">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">
@@ -200,10 +326,7 @@ export function TodayClient({
             ) : !day ? (
               <div>
                 <p className="text-[15px] text-ink">No plan for today yet.</p>
-                <Link
-                  href="/plan"
-                  className="mt-1 inline-block text-[14px] font-medium text-brand"
-                >
+                <Link href="/plan" className="mt-1 inline-block text-[14px] font-medium text-brand">
                   Plan your week →
                 </Link>
               </div>
@@ -228,9 +351,20 @@ export function TodayClient({
                     {day.lunch_note && <p>Adults&apos; lunch: {day.lunch_note}</p>}
                   </div>
                 )}
-                <p className="mt-3 text-[12px] text-faint">
-                  One-tap &quot;cooked&quot; (updates your pantry) arrives next.
-                </p>
+                {canCook && (
+                  <button
+                    onClick={cookDinner}
+                    disabled={day.dinner_cooked}
+                    className={`mt-3 flex min-h-tap w-full items-center justify-center gap-2 rounded-xl text-[15px] font-medium ${
+                      day.dinner_cooked
+                        ? "bg-brand-tint text-brand"
+                        : "bg-brand text-white hover:bg-brand-hover"
+                    }`}
+                  >
+                    <CheckIcon className="h-5 w-5" />
+                    {day.dinner_cooked ? "Cooked — pantry updated" : "Cooked this — update pantry"}
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -239,40 +373,56 @@ export function TodayClient({
         {/* Today's lunchboxes */}
         {!loading && day?.kids_present && !day.away && (
           <section className="mt-6">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">
-                Lunchboxes
-              </h2>
-              <Link
-                href="/plan"
-                className="text-[13px] font-medium text-brand underline-offset-4 hover:underline"
-              >
-                Edit
-              </Link>
-            </div>
+            <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted">
+              Lunchboxes
+            </h2>
             <div className="space-y-3">
               {([1, 2] as const).map((slot) => {
                 const mine = lunchboxes.filter((l) => l.child_slot === slot);
                 return (
-                  <div
-                    key={slot}
-                    className="rounded-card border border-border bg-surface p-4"
-                  >
-                    <p className="mb-1.5 text-[15px] font-semibold text-ink">
+                  <div key={slot} className="rounded-card border border-border bg-surface p-4">
+                    <p className="mb-2 text-[15px] font-semibold text-ink">
                       {childNames[slot - 1]}
                     </p>
                     {mine.length === 0 ? (
                       <p className="text-[13px] text-faint">Nothing planned.</p>
                     ) : (
-                      <div className="space-y-1 text-[13px] text-muted">
+                      <div className="space-y-3">
                         {LUNCH_COMPONENTS.map((c) => {
                           const items = mine.filter((l) => l.component === c.value);
                           if (!items.length) return null;
                           return (
-                            <p key={c.value}>
-                              <span className="text-ink">{c.label}:</span>{" "}
-                              {items.map((it) => it.name).join(", ")}
-                            </p>
+                            <div key={c.value}>
+                              <p className="mb-1 text-[12px] font-medium uppercase tracking-wide text-muted">
+                                {c.label}
+                              </p>
+                              <div className="space-y-1.5">
+                                {items.map((it) => (
+                                  <div key={it.id} className="flex items-center gap-2">
+                                    <input
+                                      value={it.name}
+                                      onChange={(e) => editLb(it.id, e.target.value)}
+                                      disabled={it.packed}
+                                      className={`min-h-[38px] flex-1 rounded-lg border border-border bg-surface px-3 text-[14px] focus:border-brand ${
+                                        it.packed ? "text-faint line-through" : "text-ink"
+                                      }`}
+                                    />
+                                    <button
+                                      onClick={() => packLb(it)}
+                                      disabled={it.packed}
+                                      aria-label={it.packed ? "Packed" : "Mark packed"}
+                                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
+                                        it.packed
+                                          ? "border-brand bg-brand text-white"
+                                          : "border-border text-transparent hover:text-muted"
+                                      }`}
+                                    >
+                                      <CheckIcon className="h-5 w-5" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
@@ -280,10 +430,35 @@ export function TodayClient({
                   </div>
                 );
               })}
+              <p className="text-center text-[12px] text-faint">
+                Edit an item before ticking (e.g. apple → banana); ticking deducts it
+                from your pantry.
+              </p>
             </div>
           </section>
         )}
       </main>
+
+      {toast && (
+        <div className="safe-bottom fixed inset-x-4 bottom-20 z-[60] mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl bg-ink px-4 py-3 shadow-pop">
+          <span className="text-[14px] text-surface">{toast.msg}</span>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={() => toast.undo()}
+              className="text-[14px] font-semibold text-brand-ring"
+            >
+              Undo
+            </button>
+            <button
+              onClick={() => setToast(null)}
+              aria-label="Dismiss"
+              className="flex h-6 w-6 items-center justify-center text-surface/60 hover:text-surface"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeName } from "@/lib/normalize";
 import type { LunchComponent, PlanDayResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -15,8 +16,9 @@ current stock (some flagged "use soon"), and the two children's names.
 Recipes are typed: "full" (a complete meal), "main" (needs sides), "side" (a starch or veg).
 
 Rules:
-- Plan a DINNER every day (shared). The primary is a library recipe by exact id (a "full" or "main"),
-  or invent a simple dinner in dinner_note (leave dinner_recipe_id null).
+- Plan a DINNER every day (shared). The primary is EITHER a library recipe (use its exact id in
+  dinner_recipe_id) OR a NEW recipe you invent — supply it in new_recipe with real ingredients and a
+  short method (never just a name). Use one or the other, not both.
 - SIDES (dinner_side_ids): pick from SIDE recipe ids only.
     • If the primary is a "full" meal (e.g. pasta) → NO sides (empty array).
     • If the primary is a "main" → add a starch side + a veg side when suitable sides exist.
@@ -31,7 +33,7 @@ Rules:
     Kid-friendly, no chilli. The two children may have different items.
 
 Return ONLY compact JSON (no prose, no fences):
-{"days":[{"date":"YYYY-MM-DD","dinner_recipe_id":"<id|null>","dinner_side_ids":["<side id>"],"dinner_note":"<string|null>","lunch_note":"<string|null>","breakfast_note":"<string|null>"}],"lunchboxes":[{"date":"YYYY-MM-DD","child_slot":1,"component":"crunch_sip|afternoon_tea|recess","name":"string","quantity":number|null,"unit":"string|null"}]}
+{"days":[{"date":"YYYY-MM-DD","dinner_recipe_id":"<library id|null>","new_recipe":{"title":"string","meal_type":"full|main","ingredients":[{"name":"string","quantity":number|null,"unit":"string|null","is_staple":boolean}],"instructions":"string"}|null,"dinner_side_ids":["<side id>"],"lunch_note":"<string|null>","breakfast_note":"<string|null>"}],"lunchboxes":[{"date":"YYYY-MM-DD","child_slot":1,"component":"crunch_sip|afternoon_tea|recess","name":"string","quantity":number|null,"unit":"string|null"}]}
 child_slot 1 = first child, 2 = second child. Only include lunchboxes for kids-here days. Keep it short.`;
 
 function extractObj(text: string): Record<string, unknown> | null {
@@ -64,6 +66,14 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("household_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!profile) return NextResponse.json({ error: "No household." }, { status: 400 });
+  const householdId = profile.household_id as string;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -144,7 +154,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: SYSTEM_PROMPT,
         messages: [
           {
@@ -175,19 +185,77 @@ export async function POST(request: Request) {
       );
     }
 
-    const result: PlanDayResult[] = days.map((d, i) => {
+    // Reuse recipes by title to avoid duplicates across regenerations.
+    const titleToId = new Map<string, string>();
+    (recipes ?? []).forEach((r) =>
+      titleToId.set(normalizeName(r.title as string), r.id as string)
+    );
+
+    const result: PlanDayResult[] = [];
+    for (let i = 0; i < days.length; i++) {
+      const d = days[i];
       const raw = (rawDays[i] ?? {}) as Record<string, unknown>;
-      const rid =
+
+      let rid: string | null =
         typeof raw.dinner_recipe_id === "string" &&
         recipeIds.has(raw.dinner_recipe_id)
           ? raw.dinner_recipe_id
           : null;
+
+      // Invented dinner → create (or reuse) a real recipe with ingredients + method.
+      const nr = raw.new_recipe as Record<string, unknown> | undefined;
+      if (!rid && nr && typeof nr.title === "string" && nr.title.trim()) {
+        const key = normalizeName(nr.title);
+        const existing = titleToId.get(key);
+        if (existing) {
+          rid = existing;
+        } else {
+          const mt = nr.meal_type === "main" || nr.meal_type === "full" ? nr.meal_type : "full";
+          const { data: rec } = await supabase
+            .from("recipes")
+            .insert({
+              household_id: householdId,
+              title: String(nr.title).trim().slice(0, 120),
+              source_type: "suggested",
+              servings: 4,
+              meal_type: mt,
+              instructions: typeof nr.instructions === "string" ? nr.instructions : null,
+              tags: [],
+            })
+            .select("id")
+            .single();
+          if (rec) {
+            rid = rec.id as string;
+            titleToId.set(key, rid);
+            const rawIngs = Array.isArray(nr.ingredients)
+              ? (nr.ingredients as Record<string, unknown>[])
+              : [];
+            const ingRows = rawIngs
+              .filter((x) => x && typeof x.name === "string" && String(x.name).trim())
+              .slice(0, 40)
+              .map((x) => ({
+                recipe_id: rid,
+                name: normalizeName(String(x.name)),
+                quantity:
+                  typeof x.quantity === "number" && Number.isFinite(x.quantity)
+                    ? (x.quantity as number)
+                    : null,
+                unit: x.unit ? String(x.unit).slice(0, 16) : null,
+                is_staple: Boolean(x.is_staple),
+              }));
+            if (ingRows.length)
+              await supabase.from("recipe_ingredients").insert(ingRows);
+          }
+        }
+      }
+
       const sides = Array.isArray(raw.dinner_side_ids)
         ? (raw.dinner_side_ids as unknown[]).filter(
             (s): s is string => typeof s === "string" && sideIds.has(s)
           )
         : [];
-      return {
+
+      result.push({
         date: d.date,
         kids_present: d.kids_present,
         dinner_recipe_id: rid,
@@ -197,8 +265,8 @@ export async function POST(request: Request) {
         breakfast_note: str(raw.breakfast_note),
         lunchbox_notes: null,
         snack_notes: null,
-      };
-    });
+      });
+    }
 
     // Validate lunchbox suggestions (kids-here days only).
     const rawLb = Array.isArray(parsed?.lunchboxes)
