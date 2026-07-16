@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  MEAL_TYPES,
   RECIPE_TAGS,
+  type MealType,
   type RecipeDraft,
   type RecipeIngredient,
   type RecipeSourceType,
@@ -19,6 +21,7 @@ type Form = {
   prep_min: string;
   cook_min: string;
   tags: RecipeTag[];
+  meal_type: MealType;
   instructions: string;
   is_favourite: boolean;
   ingredients: RecipeIngredient[];
@@ -43,6 +46,7 @@ function toForm(
       prep_min: recipe.prep_min != null ? String(recipe.prep_min) : "",
       cook_min: recipe.cook_min != null ? String(recipe.cook_min) : "",
       tags: (recipe.tags ?? []) as RecipeTag[],
+      meal_type: recipe.meal_type ?? "full",
       instructions: recipe.instructions ?? "",
       is_favourite: recipe.is_favourite,
       ingredients: recipe.recipe_ingredients?.length
@@ -57,6 +61,7 @@ function toForm(
       prep_min: draft.prep_min != null ? String(draft.prep_min) : "",
       cook_min: draft.cook_min != null ? String(draft.cook_min) : "",
       tags: draft.tags ?? [],
+      meal_type: draft.meal_type ?? "full",
       instructions: draft.instructions ?? "",
       is_favourite: false,
       ingredients: draft.ingredients?.length
@@ -70,6 +75,7 @@ function toForm(
     prep_min: "",
     cook_min: "",
     tags: [],
+    meal_type: "full",
     instructions: "",
     is_favourite: false,
     ingredients: [blankIngredient()],
@@ -158,6 +164,7 @@ export function RecipeSheet({
       prep_min: form.prep_min ? parseInt(form.prep_min) : null,
       cook_min: form.cook_min ? parseInt(form.cook_min) : null,
       tags: form.tags,
+      meal_type: form.meal_type,
       instructions: form.instructions.trim() || null,
       is_favourite: form.is_favourite,
     };
@@ -348,6 +355,26 @@ export function RecipeSheet({
                 onChange={(e) => set("cook_min", e.target.value)}
                 className={field}
               />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className={label}>Type</span>
+            <div className="flex gap-1 rounded-xl bg-surface p-1">
+              {MEAL_TYPES.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => set("meal_type", t.value)}
+                  className={`min-h-[40px] flex-1 rounded-lg text-[14px] font-medium transition-colors ${
+                    form.meal_type === t.value
+                      ? "bg-brand-tint text-brand"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
 

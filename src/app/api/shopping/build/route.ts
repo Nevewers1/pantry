@@ -59,11 +59,21 @@ export async function POST(request: Request) {
   if (mealPlanId) {
     const { data: mpDays } = await supabase
       .from("meal_plan_days")
-      .select("dinner_recipe_id, away, dinner_status")
+      .select("dinner_recipe_id, dinner_side_ids, away, dinner_status")
       .eq("meal_plan_id", mealPlanId);
-    const recipeIds = (mpDays ?? [])
-      .filter((d) => !d.away && d.dinner_status === "home" && d.dinner_recipe_id)
-      .map((d) => d.dinner_recipe_id as string);
+    const homeDays = (mpDays ?? []).filter(
+      (d) => !d.away && d.dinner_status === "home"
+    );
+    const recipeIds = Array.from(
+      new Set([
+        ...homeDays
+          .filter((d) => d.dinner_recipe_id)
+          .map((d) => d.dinner_recipe_id as string),
+        ...homeDays.flatMap(
+          (d) => (d.dinner_side_ids as string[] | null) ?? []
+        ),
+      ])
+    );
 
     if (recipeIds.length) {
       const { data: ings } = await supabase

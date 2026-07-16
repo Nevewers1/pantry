@@ -30,6 +30,14 @@ export const LOCATIONS: { value: StorageLocation; label: string }[] = [
 // Common units offered as autocomplete suggestions (free text still allowed).
 // ---- Recipes (Step 4) ------------------------------------------------------
 
+export type MealType = "full" | "main" | "side";
+
+export const MEAL_TYPES: { value: MealType; label: string }[] = [
+  { value: "full", label: "Full meal" },
+  { value: "main", label: "Main" },
+  { value: "side", label: "Side dish" },
+];
+
 export type RecipeTag =
   | "kid_friendly"
   | "lunchbox"
@@ -68,6 +76,7 @@ export type Recipe = {
   prep_min: number | null;
   cook_min: number | null;
   tags: string[];
+  meal_type: MealType;
   instructions: string | null;
   image_path: string | null;
   is_favourite: boolean;
@@ -85,6 +94,7 @@ export type PlanDayResult = {
   date: string; // YYYY-MM-DD
   kids_present: boolean;
   away?: boolean;
+  dinner_side_ids?: string[];
   dinner_recipe_id: string | null;
   dinner_note: string | null;
   lunch_note: string | null;
@@ -137,7 +147,12 @@ export type LunchboxItem = {
 };
 
 // Minimal recipe reference for the planner's library dropdown.
-export type RecipeRef = { id: string; title: string; tags: string[] };
+export type RecipeRef = {
+  id: string;
+  title: string;
+  tags: string[];
+  meal_type: MealType;
+};
 
 // Lightweight pantry row for recipe matching + "cooked this" decrements.
 export type PantrySlim = {
@@ -154,6 +169,7 @@ export type RecipeDraft = {
   prep_min: number | null;
   cook_min: number | null;
   tags: RecipeTag[];
+  meal_type?: MealType;
   instructions: string;
   source_url: string | null;
   source_type?: RecipeSourceType;

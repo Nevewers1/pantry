@@ -28,7 +28,7 @@ export default async function PlanPage() {
 
   const { data: recipes } = await supabase
     .from("recipes")
-    .select("id, title, tags")
+    .select("id, title, tags, meal_type")
     .order("title", { ascending: true });
 
   const { data: pantry } = await supabase

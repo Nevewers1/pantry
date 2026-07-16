@@ -75,6 +75,44 @@ export function PlanClient({
     recipes.forEach((r) => m.set(r.id, r.title));
     return m;
   }, [recipes]);
+  const primaryRecipes = useMemo(
+    () => recipes.filter((r) => r.meal_type !== "side"),
+    [recipes]
+  );
+  const sideRecipes = useMemo(
+    () => recipes.filter((r) => r.meal_type === "side"),
+    [recipes]
+  );
+
+  function addSide(i: number, id: string) {
+    setPlan((p) =>
+      p
+        ? p.map((d, idx) =>
+            idx === i
+              ? { ...d, dinner_side_ids: [...(d.dinner_side_ids ?? []), id] }
+              : d
+          )
+        : p
+    );
+    setSaved(false);
+  }
+  function removeSide(i: number, id: string) {
+    setPlan((p) =>
+      p
+        ? p.map((d, idx) =>
+            idx === i
+              ? {
+                  ...d,
+                  dinner_side_ids: (d.dinner_side_ids ?? []).filter(
+                    (x) => x !== id
+                  ),
+                }
+              : d
+          )
+        : p
+    );
+    setSaved(false);
+  }
 
   const [weekStart, setWeekStart] = useState<Date>(mondayOf(new Date()));
   const [anchor, setAnchor] = useState<string | null>(kidsAnchor);
@@ -150,6 +188,7 @@ export function PlanClient({
         kids_present: Boolean(d.kids_present),
         away: Boolean(d.away),
         dinner_status: ((d.dinner_status as DinnerStatus) ?? "home"),
+        dinner_side_ids: (d.dinner_side_ids as string[] | null) ?? [],
         dinner_recipe_id: (d.dinner_recipe_id as string | null) ?? null,
         dinner_note: (d.dinner_note as string | null) ?? null,
         lunch_note: (d.lunch_note as string | null) ?? null,
@@ -217,6 +256,7 @@ export function PlanClient({
       setPlan(
         (data.days as PlanDayResult[]).map((d) => ({
           ...d,
+          dinner_side_ids: d.dinner_side_ids ?? [],
           away: false,
           dinner_status: "home" as DinnerStatus,
         }))
@@ -292,6 +332,7 @@ export function PlanClient({
       away: d.away,
       dinner_status: d.away ? "home" : d.dinner_status,
       dinner_recipe_id: cookingHome(d) ? d.dinner_recipe_id : null,
+      dinner_side_ids: cookingHome(d) ? d.dinner_side_ids ?? [] : [],
       dinner_note: cookingHome(d) ? d.dinner_note : null,
       lunch_note: d.away ? null : d.lunch_note,
       breakfast_note: d.away ? null : d.breakfast_note,
@@ -486,7 +527,7 @@ export function PlanClient({
 
                         {day.dinner_status === "home" ? (
                           <>
-                            {recipes.length > 0 && (
+                            {primaryRecipes.length > 0 && (
                               <select
                                 value={day.dinner_recipe_id ?? ""}
                                 onChange={(e) =>
@@ -498,7 +539,7 @@ export function PlanClient({
                                 className={`${inputCls} mb-1`}
                               >
                                 <option value="">Custom / note below</option>
-                                {recipes.map((r) => (
+                                {primaryRecipes.map((r) => (
                                   <option key={r.id} value={r.id}>
                                     {r.title}
                                   </option>
@@ -512,6 +553,53 @@ export function PlanClient({
                                 placeholder="Dinner idea"
                                 className={inputCls}
                               />
+                            )}
+
+                            {sideRecipes.length > 0 && (
+                              <div className="mt-2">
+                                <p className="mb-1 text-[12px] font-medium text-muted">
+                                  Sides
+                                </p>
+                                {(day.dinner_side_ids ?? []).length > 0 && (
+                                  <div className="mb-1 flex flex-wrap gap-1.5">
+                                    {(day.dinner_side_ids ?? []).map((sid) => (
+                                      <span
+                                        key={sid}
+                                        className="flex items-center gap-1 rounded-lg bg-brand-tint px-2 py-1 text-[12px] font-medium text-brand"
+                                      >
+                                        {recipeTitle.get(sid) ?? "Side"}
+                                        <button
+                                          type="button"
+                                          onClick={() => removeSide(i, sid)}
+                                          aria-label="Remove side"
+                                          className="leading-none"
+                                        >
+                                          ×
+                                        </button>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                <select
+                                  value=""
+                                  onChange={(e) => {
+                                    if (e.target.value) addSide(i, e.target.value);
+                                  }}
+                                  className={inputCls}
+                                >
+                                  <option value="">+ Add a side…</option>
+                                  {sideRecipes
+                                    .filter(
+                                      (s) =>
+                                        !(day.dinner_side_ids ?? []).includes(s.id)
+                                    )
+                                    .map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.title}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
                             )}
                           </>
                         ) : (

@@ -12,9 +12,16 @@ const SYSTEM_PROMPT = `You plan a household's meals for 7 days.
 You get: the 7 days (weekday, date, kids-here?), the saved recipe library (id | title | tags),
 current stock (some flagged "use soon"), and the two children's names.
 
+Recipes are typed: "full" (a complete meal), "main" (needs sides), "side" (a starch or veg).
+
 Rules:
-- Plan a DINNER every day (shared). Prefer a library recipe by its exact id; else invent a simple
-  dinner in dinner_note (leave dinner_recipe_id null).
+- Plan a DINNER every day (shared). The primary is a library recipe by exact id (a "full" or "main"),
+  or invent a simple dinner in dinner_note (leave dinner_recipe_id null).
+- SIDES (dinner_side_ids): pick from SIDE recipe ids only.
+    • If the primary is a "full" meal (e.g. pasta) → NO sides (empty array).
+    • If the primary is a "main" → add a starch side + a veg side when suitable sides exist.
+    • Saucy mains (curry, stew, chilli-free braise) → always include a rice-type starch side.
+    • It's fine to leave veg off; the family adds veg by hand. Only use ids from the side list.
 - Favour stock flagged "use soon"; don't repeat a dinner within the week; avoid chilli/spicy heat.
 - breakfast_note: only on kids-here WEEKEND days — a simple cooked breakfast idea; otherwise null.
 - lunch_note: an optional adults' work-lunch idea; otherwise null.
@@ -24,7 +31,7 @@ Rules:
     Kid-friendly, no chilli. The two children may have different items.
 
 Return ONLY compact JSON (no prose, no fences):
-{"days":[{"date":"YYYY-MM-DD","dinner_recipe_id":"<id|null>","dinner_note":"<string|null>","lunch_note":"<string|null>","breakfast_note":"<string|null>"}],"lunchboxes":[{"date":"YYYY-MM-DD","child_slot":1,"component":"crunch_sip|afternoon_tea|recess","name":"string","quantity":number|null,"unit":"string|null"}]}
+{"days":[{"date":"YYYY-MM-DD","dinner_recipe_id":"<id|null>","dinner_side_ids":["<side id>"],"dinner_note":"<string|null>","lunch_note":"<string|null>","breakfast_note":"<string|null>"}],"lunchboxes":[{"date":"YYYY-MM-DD","child_slot":1,"component":"crunch_sip|afternoon_tea|recess","name":"string","quantity":number|null,"unit":"string|null"}]}
 child_slot 1 = first child, 2 = second child. Only include lunchboxes for kids-here days. Keep it short.`;
 
 function extractObj(text: string): Record<string, unknown> | null {
@@ -84,8 +91,13 @@ export async function POST(request: Request) {
 
   const { data: recipes } = await supabase
     .from("recipes")
-    .select("id, title, tags, is_favourite");
+    .select("id, title, tags, is_favourite, meal_type");
   const recipeIds = new Set((recipes ?? []).map((r) => r.id as string));
+  const sideIds = new Set(
+    (recipes ?? [])
+      .filter((r) => r.meal_type === "side")
+      .map((r) => r.id as string)
+  );
 
   const { data: stock } = await supabase
     .from("pantry_items")
@@ -100,7 +112,7 @@ export async function POST(request: Request) {
     (recipes ?? [])
       .map(
         (r) =>
-          `${r.id} | ${r.title}${
+          `${r.id} | ${r.title} | ${r.meal_type}${
             (r.tags as string[])?.length ? ` | ${(r.tags as string[]).join(",")}` : ""
           }${r.is_favourite ? " | favourite" : ""}`
       )
@@ -170,10 +182,16 @@ export async function POST(request: Request) {
         recipeIds.has(raw.dinner_recipe_id)
           ? raw.dinner_recipe_id
           : null;
+      const sides = Array.isArray(raw.dinner_side_ids)
+        ? (raw.dinner_side_ids as unknown[]).filter(
+            (s): s is string => typeof s === "string" && sideIds.has(s)
+          )
+        : [];
       return {
         date: d.date,
         kids_present: d.kids_present,
         dinner_recipe_id: rid,
+        dinner_side_ids: sides,
         dinner_note: rid ? null : str(raw.dinner_note),
         lunch_note: str(raw.lunch_note),
         breakfast_note: str(raw.breakfast_note),
