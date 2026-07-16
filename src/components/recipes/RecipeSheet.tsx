@@ -87,6 +87,7 @@ export function RecipeSheet({
   onClose,
   onSaved,
   onDeleted,
+  onCook,
 }: {
   open: boolean;
   recipe: RecipeWithIngredients | null;
