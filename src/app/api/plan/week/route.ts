@@ -1,32 +1,33 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import type { PlanDayResult } from "@/lib/types";
+import type { LunchComponent, PlanDayResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
+const COMPONENTS = ["crunch_sip", "afternoon_tea", "recess"];
 
-const SYSTEM_PROMPT = `You plan a household's dinners (plus light notes) for 7 days.
-You get: the 7 days (each with weekday, date, and whether the kids are here), the household's
-saved recipe library (id | title | tags), and current food stock (some flagged "use soon").
+const SYSTEM_PROMPT = `You plan a household's meals for 7 days.
+You get: the 7 days (weekday, date, kids-here?), the saved recipe library (id | title | tags),
+current stock (some flagged "use soon"), and the two children's names.
 
-Household rules:
-- Plan a DINNER every day. Prefer a recipe from the library when it fits — reference it by its exact id.
-  If nothing fits, invent a simple dinner and put it in dinner_note (leave dinner_recipe_id null).
-- Favour dinners that use stock flagged "use soon" so nothing is wasted; minimise new shopping.
-- Don't repeat the same dinner within the week.
-- Kids-here days: keep dinners kid-friendly; add a school-day LUNCHBOX note (sandwich/fruit/snack ideas).
-  On kids-here WEEKEND days add a breakfast_note (cereal, or toast with cheese & salami).
-  Add a healthy snack idea in snack_notes on kids-here days.
-- Adults-only days: dinners can be more adult; no lunchbox needed.
-- AVOID chilli / spicy heat entirely (household preference).
+Rules:
+- Plan a DINNER every day (shared). Prefer a library recipe by its exact id; else invent a simple
+  dinner in dinner_note (leave dinner_recipe_id null).
+- Favour stock flagged "use soon"; don't repeat a dinner within the week; avoid chilli/spicy heat.
+- breakfast_note: only on kids-here WEEKEND days — a simple cooked breakfast idea; otherwise null.
+- lunch_note: an optional adults' work-lunch idea; otherwise null.
+- LUNCHBOXES: for each kids-here day, for BOTH children, propose ONE item per component:
+    crunch_sip = a piece of fruit; afternoon_tea = a small snack;
+    recess = a warm lunch (favour leftovers or a premade meal from stock, else a simple sandwich).
+    Kid-friendly, no chilli. The two children may have different items.
 
 Return ONLY compact JSON (no prose, no fences):
-{"days":[{"date":"YYYY-MM-DD","dinner_recipe_id":"<id or null>","dinner_note":"<string or null>","lunch_note":"<string or null>","breakfast_note":"<string or null>","lunchbox_notes":"<string or null>","snack_notes":"<string or null>"}]}
-Return exactly one entry per day given, in the same order. Keep notes short.`;
+{"days":[{"date":"YYYY-MM-DD","dinner_recipe_id":"<id|null>","dinner_note":"<string|null>","lunch_note":"<string|null>","breakfast_note":"<string|null>"}],"lunchboxes":[{"date":"YYYY-MM-DD","child_slot":1,"component":"crunch_sip|afternoon_tea|recess","name":"string","quantity":number|null,"unit":"string|null"}]}
+child_slot 1 = first child, 2 = second child. Only include lunchboxes for kids-here days. Keep it short.`;
 
-function extractDays(text: string): unknown[] | null {
+function extractObj(text: string): Record<string, unknown> | null {
   const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   const tryParse = (s: string): unknown => {
     try {
@@ -41,12 +42,9 @@ function extractDays(text: string): unknown[] | null {
     const o2 = cleaned.lastIndexOf("}");
     if (o1 !== -1 && o2 > o1) obj = tryParse(cleaned.slice(o1, o2 + 1));
   }
-  if (obj == null) return null;
-  if (Array.isArray(obj)) return obj;
-  const rec = obj as Record<string, unknown>;
-  if (Array.isArray(rec.days)) return rec.days;
-  const firstArray = Object.values(rec).find((v) => Array.isArray(v));
-  return Array.isArray(firstArray) ? firstArray : null;
+  return obj && typeof obj === "object" && !Array.isArray(obj)
+    ? (obj as Record<string, unknown>)
+    : null;
 }
 
 function str(v: unknown): string | null {
@@ -69,15 +67,20 @@ export async function POST(request: Request) {
   }
 
   let days: { date: string; kids_present: boolean }[] = [];
+  let childNames: [string, string] = ["Zyana", "Micah"];
   try {
     const body = await request.json();
     days = Array.isArray(body.days) ? body.days : [];
+    if (Array.isArray(body.childNames) && body.childNames.length === 2) {
+      childNames = [String(body.childNames[0]), String(body.childNames[1])];
+    }
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
   if (days.length === 0) {
     return NextResponse.json({ error: "No days to plan." }, { status: 400 });
   }
+  const kidsDates = new Set(days.filter((d) => d.kids_present).map((d) => d.date));
 
   const { data: recipes } = await supabase
     .from("recipes")
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
 
   const { data: stock } = await supabase
     .from("pantry_items")
-    .select("name, quantity, unit, expiry_date")
+    .select("name, expiry_date")
     .order("expiry_date", { ascending: true, nullsFirst: false });
 
   const soon = new Date();
@@ -114,9 +117,7 @@ export async function POST(request: Request) {
 
   const dayLines = days
     .map((d) => {
-      const wd = new Date(d.date).toLocaleDateString("en-AU", {
-        weekday: "long",
-      });
+      const wd = new Date(d.date).toLocaleDateString("en-AU", { weekday: "long" });
       return `${d.date} (${wd}) — kids ${d.kids_present ? "here" : "not here"}`;
     })
     .join("\n");
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
         messages: [
           {
             role: "user",
-            content: `Days to plan:\n${dayLines}\n\nRecipe library:\n${recipeList}\n\nCurrent stock:\n${stockList}\n\nPlan the week.`,
+            content: `Children: 1=${childNames[0]}, 2=${childNames[1]}\n\nDays to plan:\n${dayLines}\n\nRecipe library:\n${recipeList}\n\nCurrent stock:\n${stockList}\n\nPlan the week.`,
           },
         ],
       }),
@@ -153,7 +154,8 @@ export async function POST(request: Request) {
     const data = await res.json();
     const out: string =
       data?.content?.map((c: { text?: string }) => c.text ?? "").join("\n") ?? "";
-    const rawDays = extractDays(out);
+    const parsed = extractObj(out);
+    const rawDays = Array.isArray(parsed?.days) ? (parsed!.days as unknown[]) : null;
     if (!rawDays) {
       return NextResponse.json(
         { error: "Couldn't build a plan. Try again." },
@@ -161,7 +163,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Map the model output back onto the requested days (by order), keeping kids flags.
     const result: PlanDayResult[] = days.map((d, i) => {
       const raw = (rawDays[i] ?? {}) as Record<string, unknown>;
       const rid =
@@ -176,12 +177,40 @@ export async function POST(request: Request) {
         dinner_note: rid ? null : str(raw.dinner_note),
         lunch_note: str(raw.lunch_note),
         breakfast_note: str(raw.breakfast_note),
-        lunchbox_notes: str(raw.lunchbox_notes),
-        snack_notes: str(raw.snack_notes),
+        lunchbox_notes: null,
+        snack_notes: null,
       };
     });
 
-    return NextResponse.json({ days: result });
+    // Validate lunchbox suggestions (kids-here days only).
+    const rawLb = Array.isArray(parsed?.lunchboxes)
+      ? (parsed!.lunchboxes as Record<string, unknown>[])
+      : [];
+    const lunchboxes = rawLb
+      .filter(
+        (l) =>
+          typeof l.date === "string" &&
+          kidsDates.has(l.date) &&
+          (l.child_slot === 1 || l.child_slot === 2) &&
+          typeof l.component === "string" &&
+          COMPONENTS.includes(l.component) &&
+          typeof l.name === "string" &&
+          l.name.trim()
+      )
+      .slice(0, 60)
+      .map((l) => ({
+        date: l.date as string,
+        child_slot: l.child_slot as 1 | 2,
+        component: l.component as LunchComponent,
+        name: String(l.name).trim().slice(0, 80),
+        quantity:
+          typeof l.quantity === "number" && Number.isFinite(l.quantity)
+            ? (l.quantity as number)
+            : 1,
+        unit: l.unit ? String(l.unit).slice(0, 16) : null,
+      }));
+
+    return NextResponse.json({ days: result, lunchboxes });
   } catch {
     return NextResponse.json(
       { error: "Something went wrong building the plan." },

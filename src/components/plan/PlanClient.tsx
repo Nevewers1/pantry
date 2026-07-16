@@ -14,6 +14,7 @@ import {
   CalendarIcon,
   ChevronRightIcon,
 } from "@/components/icons";
+import { namesMatch } from "@/lib/normalize";
 import { LunchboxSheet } from "@/components/plan/LunchboxSheet";
 
 type Day = PlanDayResult & { away: boolean; dinner_status: DinnerStatus };
@@ -206,7 +207,7 @@ export function PlanClient({
       const res = await fetch("/api/plan/week", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ week_start: ymd(weekStart), days }),
+        body: JSON.stringify({ week_start: ymd(weekStart), days, childNames: names }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -220,6 +221,33 @@ export function PlanClient({
           dinner_status: "home" as DinnerStatus,
         }))
       );
+
+      // Persist the AI's lunchbox suggestions so they're ready to review/tweak.
+      const lbs = (data.lunchboxes ?? []) as {
+        date: string;
+        child_slot: 1 | 2;
+        component: string;
+        name: string;
+        quantity: number | null;
+        unit: string | null;
+      }[];
+      if (lbs.length) {
+        const lbDates = Array.from(new Set(lbs.map((l) => l.date)));
+        await supabase.from("lunchbox_items").delete().in("date", lbDates);
+        await supabase.from("lunchbox_items").insert(
+          lbs.map((l) => ({
+            household_id: householdId,
+            date: l.date,
+            child_slot: l.child_slot,
+            component: l.component,
+            name: l.name,
+            quantity: l.quantity ?? 1,
+            unit: l.unit,
+            pantry_item_id:
+              pantry.find((p) => namesMatch(l.name, p.name))?.id ?? null,
+          }))
+        );
+      }
     } catch {
       setError("Something went wrong. Try again.");
     } finally {
@@ -496,7 +524,7 @@ export function PlanClient({
                       </div>
 
                       <EditLine
-                        label="Lunch"
+                        label="Adults' lunch"
                         value={day.lunch_note}
                         onChange={(v) => setDay(i, { lunch_note: v })}
                       />
@@ -504,16 +532,6 @@ export function PlanClient({
                         label="Breakfast"
                         value={day.breakfast_note}
                         onChange={(v) => setDay(i, { breakfast_note: v })}
-                      />
-                      <EditLine
-                        label="Lunchbox"
-                        value={day.lunchbox_notes}
-                        onChange={(v) => setDay(i, { lunchbox_notes: v })}
-                      />
-                      <EditLine
-                        label="Snacks"
-                        value={day.snack_notes}
-                        onChange={(v) => setDay(i, { snack_notes: v })}
                       />
                       {day.kids_present && (
                         <button
