@@ -9,6 +9,8 @@ import {
   type StorageLocation,
 } from "@/lib/types";
 import { CameraIcon, XIcon } from "@/components/icons";
+import { estimateDaysFor } from "@/lib/estimateClient";
+import { addDaysISO } from "@/lib/shelfLife";
 
 const inputClass =
   "min-h-[42px] w-full rounded-lg border border-border bg-surface px-3 text-[14px] text-ink placeholder:text-faint focus:border-brand";
@@ -33,10 +35,34 @@ export function ScanReview({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (items) {
-      setRows(items);
-      setError(null);
-    }
+    if (!items) return;
+    setRows(items);
+    setError(null);
+
+    // Prefill approximate use-by dates (editable before saving).
+    let cancelled = false;
+    (async () => {
+      const map = await estimateDaysFor(
+        items.map((it) => ({
+          key: `${it.name}|${it.location}`,
+          name: it.name,
+          location: it.location,
+        }))
+      );
+      if (cancelled) return;
+      setRows((prev) =>
+        prev.map((row) => {
+          if (row.expiry_date) return row; // don't overwrite a manual edit
+          const days = map.get(`${row.name}|${row.location}`);
+          return days != null
+            ? { ...row, expiry_date: addDaysISO(days), expiry_estimated: true }
+            : row;
+        })
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [items]);
 
   if (!items) return null;
@@ -59,6 +85,8 @@ export function ScanReview({
       unit: r.unit.trim() || null,
       category: r.category.trim() || null,
       location: r.location,
+      expiry_date: r.expiry_date || null,
+      expiry_estimated: !!r.expiry_date && (r.expiry_estimated ?? false),
       updated_by: userId,
     }));
 
@@ -171,6 +199,23 @@ export function ScanReview({
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="shrink-0 text-[12px] text-faint">
+                  Best-before{row.expiry_estimated ? " (est.)" : ""}
+                </span>
+                <input
+                  type="date"
+                  value={row.expiry_date ?? ""}
+                  onChange={(e) =>
+                    update(i, {
+                      expiry_date: e.target.value || null,
+                      expiry_estimated: false,
+                    })
+                  }
+                  aria-label="Best-before date"
+                  className={inputClass}
+                />
               </div>
             </div>
           ))}

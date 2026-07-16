@@ -9,6 +9,7 @@ import {
   type StorageLocation,
 } from "@/lib/types";
 import { TrashIcon, XIcon } from "@/components/icons";
+import { estimateShelfLifeDays, addDaysISO } from "@/lib/shelfLife";
 
 type FormState = {
   name: string;
@@ -99,6 +100,19 @@ export function ItemSheet({
       return;
     }
 
+    // A date in the sheet is one the person owns. If a brand-new item is left
+    // blank, fill in an instant shelf-life estimate (marked approximate) so it
+    // still shows a "check me" date without any typing.
+    let expiry_date = form.expiry_date || null;
+    let expiry_estimated = false;
+    if (!item && !expiry_date) {
+      const days = estimateShelfLifeDays(name, form.location);
+      if (days != null) {
+        expiry_date = addDaysISO(days);
+        expiry_estimated = true;
+      }
+    }
+
     const payload = {
       household_id: householdId,
       name,
@@ -106,7 +120,8 @@ export function ItemSheet({
       unit: form.unit.trim() || null,
       location: form.location,
       category: form.category.trim() || null,
-      expiry_date: form.expiry_date || null,
+      expiry_date,
+      expiry_estimated,
       min_threshold: form.min_threshold ? parseFloat(form.min_threshold) : null,
       updated_by: userId,
     };
@@ -282,6 +297,11 @@ export function ItemSheet({
                 onChange={(e) => set("expiry_date", e.target.value)}
                 className={fieldClass}
               />
+              {item?.expiry_estimated && (
+                <p className="text-[11px] text-faint">
+                  Estimated — adjust if it&apos;ll keep longer.
+                </p>
+              )}
             </div>
           </div>
 

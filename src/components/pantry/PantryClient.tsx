@@ -11,10 +11,13 @@ import {
 } from "@/lib/types";
 import { expiryLabel, formatQty } from "@/lib/format";
 import { fileToResizedBase64 } from "@/lib/image";
+import { estimateDaysFor } from "@/lib/estimateClient";
+import { addDaysISO } from "@/lib/shelfLife";
 import {
   ArrowLeftIcon,
   BoxIcon,
   CameraIcon,
+  ClockIcon,
   MinusIcon,
   PlusIcon,
 } from "@/components/icons";
@@ -45,6 +48,10 @@ export function PantryClient({
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [detected, setDetected] = useState<DetectedItem[] | null>(null);
+
+  // Shelf-life estimation
+  const [estimating, setEstimating] = useState(false);
+  const [estMsg, setEstMsg] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -151,6 +158,57 @@ export function PantryClient({
     }
   }
 
+  // Fill in approximate use-by dates for items that don't have one.
+  async function estimateExpiries() {
+    if (estimating) return;
+    const undated = items.filter((i) => !i.expiry_date);
+    if (undated.length === 0) return;
+    setEstimating(true);
+    setEstMsg(null);
+    try {
+      const map = await estimateDaysFor(
+        undated.map((i) => ({ key: i.id, name: i.name, location: i.location }))
+      );
+      const updates = undated
+        .filter((i) => map.has(i.id))
+        .map((i) => ({
+          id: i.id,
+          expiry_date: addDaysISO(map.get(i.id) as number, i.created_at),
+        }));
+
+      await Promise.all(
+        updates.map((u) =>
+          supabase
+            .from("pantry_items")
+            .update({
+              expiry_date: u.expiry_date,
+              expiry_estimated: true,
+              updated_by: userId,
+            })
+            .eq("id", u.id)
+        )
+      );
+
+      setItems((prev) =>
+        prev.map((p) => {
+          const u = updates.find((x) => x.id === p.id);
+          return u
+            ? { ...p, expiry_date: u.expiry_date, expiry_estimated: true }
+            : p;
+        })
+      );
+      setEstMsg(
+        `Added ${updates.length} estimated date${
+          updates.length === 1 ? "" : "s"
+        }. They show with a ~ — tap any item to adjust.`
+      );
+    } catch {
+      setEstMsg("Couldn't estimate dates just now. Try again in a moment.");
+    } finally {
+      setEstimating(false);
+    }
+  }
+
   async function onPhotoChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file
@@ -235,6 +293,41 @@ export function PantryClient({
             {scanError}
           </div>
         )}
+
+        {/* Estimate expiry dates for anything undated */}
+        {(() => {
+          const undatedCount = items.filter((i) => !i.expiry_date).length;
+          if (undatedCount === 0 && !estMsg) return null;
+          return (
+            <div className="mb-4">
+              {undatedCount > 0 && (
+                <button
+                  onClick={estimateExpiries}
+                  disabled={estimating}
+                  className="flex w-full items-center justify-between gap-3 rounded-card border border-brand-soft bg-brand-tint px-4 py-3 text-left disabled:opacity-60"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-semibold text-ink">
+                      {estimating
+                        ? "Estimating shelf life…"
+                        : "Estimate expiry dates"}
+                    </span>
+                    <span className="block text-[13px] text-muted">
+                      {undatedCount} item{undatedCount === 1 ? "" : "s"} with no
+                      date — add approximate use-by dates to review.
+                    </span>
+                  </span>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface text-brand">
+                    <ClockIcon className="h-5 w-5" />
+                  </span>
+                </button>
+              )}
+              {estMsg && (
+                <p className="mt-2 px-1 text-[13px] text-muted">{estMsg}</p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Search */}
         <input
@@ -395,8 +488,14 @@ function ItemRow({
           </span>
           {item.category && <span>· {item.category}</span>}
           {exp && (
-            <span className={`flex items-center gap-1 ${exp.tone}`}>
+            <span
+              className={`flex items-center gap-1 ${exp.tone}`}
+              title={
+                item.expiry_estimated ? "Estimated — tap to adjust" : undefined
+              }
+            >
               · <span className={`h-1.5 w-1.5 rounded-full ${exp.dot}`} />
+              {item.expiry_estimated ? "~" : ""}
               {exp.text}
             </span>
           )}

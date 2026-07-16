@@ -14,9 +14,11 @@ export type PantryItem = {
   unit: string | null;
   location: StorageLocation;
   expiry_date: string | null; // YYYY-MM-DD
+  expiry_estimated: boolean; // true = app-guessed shelf life (approximate)
   min_threshold: number | null;
   updated_by: string | null;
   updated_at: string;
+  created_at: string;
 };
 
 export const LOCATIONS: { value: StorageLocation; label: string }[] = [
@@ -187,6 +189,8 @@ export type DetectedItem = {
   unit: string;
   category: string;
   location: StorageLocation;
+  expiry_date?: string | null; // estimated on review, editable before saving
+  expiry_estimated?: boolean;
 };
 
 export const COMMON_UNITS = [

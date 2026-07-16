@@ -23,7 +23,7 @@ export default async function PantryPage() {
   const { data: items } = await supabase
     .from("pantry_items")
     .select(
-      "id, household_id, name, category, quantity, unit, location, expiry_date, min_threshold, updated_by, updated_at"
+      "id, household_id, name, category, quantity, unit, location, expiry_date, expiry_estimated, min_threshold, updated_by, updated_at, created_at"
     )
     .order("expiry_date", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
