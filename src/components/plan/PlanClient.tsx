@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { PlanDayResult, RecipeRef } from "@/lib/types";
@@ -9,6 +9,8 @@ import {
   CalendarIcon,
   ChevronRightIcon,
 } from "@/components/icons";
+
+type Day = PlanDayResult & { away: boolean };
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -24,12 +26,18 @@ function addDays(d: Date, n: number): Date {
 function mondayOf(d: Date): Date {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
-  const offset = (x.getDay() + 6) % 7; // days since Monday
-  return addDays(x, -offset);
+  return addDays(x, -((x.getDay() + 6) % 7));
 }
 function weekdayLabel(d: Date): string {
-  return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+  return d.toLocaleDateString("en-AU", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
+
+const inputCls =
+  "min-h-[42px] w-full rounded-lg border border-border bg-surface px-3 text-[14px] text-ink placeholder:text-faint focus:border-brand";
 
 export function PlanClient({
   householdId,
@@ -51,43 +59,90 @@ export function PlanClient({
 
   const [weekStart, setWeekStart] = useState<Date>(mondayOf(new Date()));
   const [anchor, setAnchor] = useState<string | null>(kidsAnchor);
-  const [pattern] = useState<boolean[]>(
-    kidsPattern.length === 14
-      ? kidsPattern
-      : [true, true, true, false, true, true, true, true, true, true, false, false, false, false]
+  const pattern = useMemo(
+    () =>
+      kidsPattern.length === 14
+        ? kidsPattern
+        : [true, true, true, false, true, true, true, true, true, true, false, false, false, false],
+    [kidsPattern]
   );
 
-  // Default kids-here for a date from the fortnightly pattern + anchor.
-  function defaultKids(date: Date): boolean {
-    if (!anchor) return false;
-    const a = new Date(anchor);
-    a.setHours(0, 0, 0, 0);
-    const diff = Math.round((date.getTime() - a.getTime()) / 86_400_000);
-    const idx = ((diff % 14) + 14) % 14;
-    return pattern[idx] ?? false;
-  }
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [plan, setPlan] = useState<Day[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const dates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
 
-  // Per-day kids toggle state, keyed by date string. Undefined = use default.
-  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
-  const kidsFor = (d: Date) => {
-    const key = ymd(d);
-    return overrides[key] ?? defaultKids(d);
-  };
+  const defaultKids = useCallback(
+    (date: Date): boolean => {
+      if (!anchor) return false;
+      const a = new Date(anchor);
+      a.setHours(0, 0, 0, 0);
+      const diff = Math.round((date.getTime() - a.getTime()) / 86_400_000);
+      return pattern[((diff % 14) + 14) % 14] ?? false;
+    },
+    [anchor, pattern]
+  );
 
-  const [plan, setPlan] = useState<PlanDayResult[] | null>(null);
-  const [original, setOriginal] = useState<PlanDayResult[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const kidsFor = (d: Date) => overrides[ymd(d)] ?? defaultKids(d);
+
+  // Load any saved plan for the selected week.
+  const loadSaved = useCallback(
+    async (weekStr: string) => {
+      setLoadingSaved(true);
+      setSaved(false);
+      const { data: mp } = await supabase
+        .from("meal_plans")
+        .select("id")
+        .eq("household_id", householdId)
+        .eq("week_start_date", weekStr)
+        .maybeSingle();
+
+      if (!mp) {
+        setPlan(null);
+        setLoadingSaved(false);
+        return;
+      }
+      const { data: days } = await supabase
+        .from("meal_plan_days")
+        .select("*")
+        .eq("meal_plan_id", mp.id)
+        .order("date", { ascending: true });
+
+      const mapped: Day[] = (days ?? []).map((d) => ({
+        date: d.date as string,
+        kids_present: Boolean(d.kids_present),
+        away: Boolean(d.away),
+        dinner_recipe_id: (d.dinner_recipe_id as string | null) ?? null,
+        dinner_note: (d.dinner_note as string | null) ?? null,
+        lunch_note: (d.lunch_note as string | null) ?? null,
+        breakfast_note: (d.breakfast_note as string | null) ?? null,
+        lunchbox_notes: (d.lunchbox_notes as string | null) ?? null,
+        snack_notes: (d.snack_notes as string | null) ?? null,
+      }));
+      setPlan(mapped.length ? mapped : null);
+      if (mapped.length) {
+        const ov: Record<string, boolean> = {};
+        mapped.forEach((m) => (ov[m.date] = m.kids_present));
+        setOverrides((prev) => ({ ...ov, ...prev }));
+      }
+      setLoadingSaved(false);
+    },
+    [supabase, householdId]
+  );
+
+  useEffect(() => {
+    loadSaved(ymd(weekStart));
+  }, [weekStart, loadSaved]);
 
   async function saveAnchor(value: string) {
     setAnchor(value || null);
-    setOverrides({});
     await supabase
       .from("households")
       .update({ kids_anchor: value || null })
@@ -110,8 +165,7 @@ export function PlanClient({
         setError(data?.error ?? "Couldn't build the plan.");
         return;
       }
-      setPlan(data.days as PlanDayResult[]);
-      setOriginal(data.days as PlanDayResult[]);
+      setPlan((data.days as PlanDayResult[]).map((d) => ({ ...d, away: false })));
     } catch {
       setError("Something went wrong. Try again.");
     } finally {
@@ -119,20 +173,8 @@ export function PlanClient({
     }
   }
 
-  function swapDinner(i: number, value: string) {
-    if (!plan) return;
-    setPlan(
-      plan.map((day, idx) => {
-        if (idx !== i) return day;
-        if (value === "__suggested__") {
-          const orig = original?.[i];
-          return orig
-            ? { ...day, dinner_recipe_id: orig.dinner_recipe_id, dinner_note: orig.dinner_note }
-            : day;
-        }
-        return { ...day, dinner_recipe_id: value, dinner_note: null };
-      })
-    );
+  function setDay(i: number, patch: Partial<Day>) {
+    setPlan((p) => (p ? p.map((d, idx) => (idx === i ? { ...d, ...patch } : d)) : p));
     setSaved(false);
   }
 
@@ -140,7 +182,6 @@ export function PlanClient({
     if (!plan) return;
     setError(null);
     const weekStartStr = ymd(weekStart);
-    // Replace any existing plan for this week.
     await supabase
       .from("meal_plans")
       .delete()
@@ -165,12 +206,13 @@ export function PlanClient({
       meal_plan_id: mp.id,
       date: d.date,
       kids_present: d.kids_present,
-      dinner_recipe_id: d.dinner_recipe_id,
-      dinner_note: d.dinner_note,
-      lunch_note: d.lunch_note,
-      breakfast_note: d.breakfast_note,
-      lunchbox_notes: d.lunchbox_notes,
-      snack_notes: d.snack_notes,
+      away: d.away,
+      dinner_recipe_id: d.away ? null : d.dinner_recipe_id,
+      dinner_note: d.away ? null : d.dinner_note,
+      lunch_note: d.away ? null : d.lunch_note,
+      breakfast_note: d.away ? null : d.breakfast_note,
+      lunchbox_notes: d.away ? null : d.lunchbox_notes,
+      snack_notes: d.away ? null : d.snack_notes,
     }));
     const { error: daysErr } = await supabase.from("meal_plan_days").insert(rows);
     if (daysErr) {
@@ -201,10 +243,7 @@ export function PlanClient({
         {/* Week selector */}
         <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface p-3">
           <button
-            onClick={() => {
-              setWeekStart(addDays(weekStart, -7));
-              setPlan(null);
-            }}
+            onClick={() => setWeekStart(addDays(weekStart, -7))}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-bg hover:text-ink"
             aria-label="Previous week"
           >
@@ -212,13 +251,11 @@ export function PlanClient({
           </button>
           <div className="flex items-center gap-2 text-[15px] font-medium text-ink">
             <CalendarIcon className="h-4 w-4 text-muted" />
-            Week of {weekStart.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+            Week of{" "}
+            {weekStart.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
           </div>
           <button
-            onClick={() => {
-              setWeekStart(addDays(weekStart, 7));
-              setPlan(null);
-            }}
+            onClick={() => setWeekStart(addDays(weekStart, 7))}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-bg hover:text-ink"
             aria-label="Next week"
           >
@@ -229,8 +266,7 @@ export function PlanClient({
         {/* Kids cycle anchor */}
         <div className="mb-4 flex flex-col gap-1.5 rounded-card border border-border bg-surface p-4">
           <label htmlFor="anchor" className="text-[13px] font-medium text-ink">
-            Kids cycle start{" "}
-            <span className="text-faint">(a Monday they arrive)</span>
+            Kids cycle start <span className="text-faint">(a Monday they arrive)</span>
           </label>
           <input
             id="anchor"
@@ -239,13 +275,9 @@ export function PlanClient({
             onChange={(e) => saveAnchor(e.target.value)}
             className="min-h-tap w-full rounded-xl border border-border bg-surface px-3.5 text-[15px] text-ink focus:border-brand"
           />
-          <p className="text-[12px] text-faint">
-            Sets the default kids-here days below from your fortnightly roster. You
-            can still flick any day for swaps.
-          </p>
         </div>
 
-        {/* Day toggles */}
+        {/* Day toggles (for generating) */}
         <div className="mb-4 overflow-hidden rounded-card border border-border bg-surface">
           {dates.map((d, i) => {
             const here = kidsFor(d);
@@ -258,13 +290,9 @@ export function PlanClient({
               >
                 <span className="text-[15px] text-ink">{weekdayLabel(d)}</span>
                 <button
-                  onClick={() =>
-                    setOverrides((o) => ({ ...o, [ymd(d)]: !here }))
-                  }
+                  onClick={() => setOverrides((o) => ({ ...o, [ymd(d)]: !here }))}
                   className={`min-h-[36px] rounded-lg px-3 text-[13px] font-medium transition-colors ${
-                    here
-                      ? "bg-brand-tint text-brand"
-                      : "bg-bg text-muted hover:text-ink"
+                    here ? "bg-brand-tint text-brand" : "bg-bg text-muted hover:text-ink"
                   }`}
                 >
                   {here ? "Kids here" : "Adults only"}
@@ -282,15 +310,15 @@ export function PlanClient({
           {loading ? "Building your week…" : plan ? "Regenerate plan" : "Plan my week"}
         </button>
         {error && <p className="mb-2 text-center text-sm text-danger">{error}</p>}
+        {loadingSaved && (
+          <p className="mb-2 text-center text-[13px] text-muted">Loading saved plan…</p>
+        )}
 
-        {/* The plan */}
+        {/* Editable plan */}
         {plan && (
           <div className="mt-4 space-y-3">
             {plan.map((day, i) => {
               const d = new Date(day.date);
-              const dinner = day.dinner_recipe_id
-                ? recipeTitle.get(day.dinner_recipe_id) ?? "Recipe"
-                : day.dinner_note ?? "—";
               return (
                 <div
                   key={day.date}
@@ -300,43 +328,78 @@ export function PlanClient({
                     <span className="text-[14px] font-semibold text-ink">
                       {weekdayLabel(d)}
                     </span>
-                    {day.kids_present && (
-                      <span className="rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-semibold text-brand">
-                        Kids here
-                      </span>
-                    )}
+                    <button
+                      onClick={() => setDay(i, { away: !day.away })}
+                      className={`min-h-[32px] rounded-lg px-2.5 text-[12px] font-medium ${
+                        day.away
+                          ? "bg-amber-tint text-amber"
+                          : "bg-bg text-muted hover:text-ink"
+                      }`}
+                    >
+                      {day.away ? "Away — no meals" : "Mark away"}
+                    </button>
                   </div>
 
-                  <p className="text-[13px] font-medium uppercase tracking-wide text-muted">
-                    Dinner
-                  </p>
-                  <p className="text-[15px] text-ink">{dinner}</p>
-                  {recipes.length > 0 && (
-                    <select
-                      value={day.dinner_recipe_id ?? "__suggested__"}
-                      onChange={(e) => swapDinner(i, e.target.value)}
-                      className="mt-2 min-h-[38px] w-full rounded-lg border border-border bg-surface px-2 text-[13px] text-ink"
-                    >
-                      <option value="__suggested__">Suggested (from plan)</option>
-                      {recipes.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.title}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {day.away ? (
+                    <p className="text-[14px] text-muted">
+                      No meals planned (you&apos;re away).
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="mb-1 text-[12px] font-medium uppercase tracking-wide text-muted">
+                          Dinner
+                        </p>
+                        {recipes.length > 0 && (
+                          <select
+                            value={day.dinner_recipe_id ?? ""}
+                            onChange={(e) =>
+                              setDay(i, {
+                                dinner_recipe_id: e.target.value || null,
+                                dinner_note: e.target.value ? null : day.dinner_note,
+                              })
+                            }
+                            className={`${inputCls} mb-1`}
+                          >
+                            <option value="">Custom / note below</option>
+                            {recipes.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.title}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {!day.dinner_recipe_id && (
+                          <input
+                            value={day.dinner_note ?? ""}
+                            onChange={(e) => setDay(i, { dinner_note: e.target.value })}
+                            placeholder="Dinner idea"
+                            className={inputCls}
+                          />
+                        )}
+                      </div>
 
-                  {day.lunch_note && (
-                    <Line label="Lunch" value={day.lunch_note} />
-                  )}
-                  {day.breakfast_note && (
-                    <Line label="Breakfast" value={day.breakfast_note} />
-                  )}
-                  {day.lunchbox_notes && (
-                    <Line label="Lunchbox" value={day.lunchbox_notes} />
-                  )}
-                  {day.snack_notes && (
-                    <Line label="Snacks" value={day.snack_notes} />
+                      <EditLine
+                        label="Lunch"
+                        value={day.lunch_note}
+                        onChange={(v) => setDay(i, { lunch_note: v })}
+                      />
+                      <EditLine
+                        label="Breakfast"
+                        value={day.breakfast_note}
+                        onChange={(v) => setDay(i, { breakfast_note: v })}
+                      />
+                      <EditLine
+                        label="Lunchbox"
+                        value={day.lunchbox_notes}
+                        onChange={(v) => setDay(i, { lunchbox_notes: v })}
+                      />
+                      <EditLine
+                        label="Snacks"
+                        value={day.snack_notes}
+                        onChange={(v) => setDay(i, { snack_notes: v })}
+                      />
+                    </div>
                   )}
                 </div>
               );
@@ -344,7 +407,7 @@ export function PlanClient({
 
             <button
               onClick={savePlan}
-              className="min-h-tap w-full rounded-xl border border-border bg-surface text-[15px] font-medium text-ink hover:bg-bg"
+              className="min-h-tap w-full rounded-xl bg-brand text-[15px] font-medium text-white hover:bg-brand-hover"
             >
               {saved ? "Saved ✓" : "Save this plan"}
             </button>
@@ -355,13 +418,26 @@ export function PlanClient({
   );
 }
 
-function Line({ label, value }: { label: string; value: string }) {
+function EditLine({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (v: string) => void;
+}) {
   return (
-    <div className="mt-2">
-      <p className="text-[13px] font-medium uppercase tracking-wide text-muted">
+    <div>
+      <p className="mb-1 text-[12px] font-medium uppercase tracking-wide text-muted">
         {label}
       </p>
-      <p className="text-[14px] text-ink">{value}</p>
+      <input
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={`${label} note`}
+        className={inputCls}
+      />
     </div>
   );
 }

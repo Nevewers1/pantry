@@ -84,6 +84,7 @@ export type RecipeWithIngredients = Recipe & {
 export type PlanDayResult = {
   date: string; // YYYY-MM-DD
   kids_present: boolean;
+  away?: boolean;
   dinner_recipe_id: string | null;
   dinner_note: string | null;
   lunch_note: string | null;
