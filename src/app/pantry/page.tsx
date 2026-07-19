@@ -5,7 +5,12 @@ import type { PantryItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function PantryPage() {
+export default async function PantryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const { q } = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -33,6 +38,7 @@ export default async function PantryPage() {
       initialItems={(items ?? []) as PantryItem[]}
       householdId={profile.household_id as string}
       userId={user.id}
+      initialSearch={q ?? ""}
     />
   );
 }

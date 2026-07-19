@@ -1,19 +1,37 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { STORES, type ShoppingItem, type StoreTag } from "@/lib/types";
 import { ArrowLeftIcon, CheckIcon, PlusIcon } from "@/components/icons";
 
+function ymd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function mondayOf(d: Date): string {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
-  const y = x.getFullYear();
-  const m = String(x.getMonth() + 1).padStart(2, "0");
-  const day = String(x.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return ymd(x);
+}
+
+// This week's Monday plus the next few, for the "shopping for" picker.
+function buildWeekOptions(): { ws: string; label: string }[] {
+  const base = new Date(`${mondayOf(new Date())}T00:00:00`);
+  const opts: { ws: string; label: string }[] = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + 7 * i);
+    const date = d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+    const name = i === 0 ? "This week" : i === 1 ? "Next week" : "Week of";
+    opts.push({ ws: ymd(d), label: `${name} · ${date}` });
+  }
+  return opts;
 }
 
 export function ShoppingClient({
@@ -28,13 +46,47 @@ export function ShoppingClient({
   budgetCap: number | null;
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const weekOptions = useMemo(() => buildWeekOptions(), []);
   const [items, setItems] = useState<ShoppingItem[]>(initialItems);
+  const [weekStart, setWeekStart] = useState<string>(weekOptions[0].ws);
   const [budget, setBudget] = useState<string>(
     budgetCap != null ? String(budgetCap) : ""
   );
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newItem, setNewItem] = useState("");
+
+  // Load the list for whichever week is selected: items from that week's plan,
+  // plus any manually-added items (which aren't tied to a week).
+  const loadWeek = useCallback(
+    async (ws: string) => {
+      const { data: mp } = await supabase
+        .from("meal_plans")
+        .select("id")
+        .eq("household_id", householdId)
+        .eq("week_start_date", ws)
+        .maybeSingle();
+      const planId = (mp?.id as string) ?? null;
+
+      let query = supabase
+        .from("shopping_list_items")
+        .select("*")
+        .eq("household_id", householdId);
+      query = planId
+        ? query.or(`meal_plan_id.eq.${planId},meal_plan_id.is.null`)
+        : query.is("meal_plan_id", null);
+
+      const { data } = await query
+        .order("category", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true });
+      setItems((data ?? []) as ShoppingItem[]);
+    },
+    [supabase, householdId]
+  );
+
+  useEffect(() => {
+    loadWeek(weekStart);
+  }, [weekStart, loadWeek]);
 
   const patch = (id: string, p: Partial<ShoppingItem>) =>
     setItems((arr) => arr.map((it) => (it.id === id ? { ...it, ...p } : it)));
@@ -50,11 +102,11 @@ export function ShoppingClient({
       const res = await fetch("/api/shopping/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ week_start: mondayOf(new Date()) }),
+        body: JSON.stringify({ week_start: weekStart }),
       });
       const data = await res.json();
       if (!res.ok) setError(data?.error ?? "Couldn't build the list.");
-      else setItems((data.items ?? []) as ShoppingItem[]);
+      else await loadWeek(weekStart);
     } catch {
       setError("Something went wrong.");
     } finally {
@@ -189,6 +241,25 @@ export function ShoppingClient({
       </header>
 
       <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
+        {/* Which week to shop for */}
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-card border border-border bg-surface p-4 shadow-soft">
+          <label htmlFor="week" className="text-[14px] font-medium text-ink">
+            Shopping for
+          </label>
+          <select
+            id="week"
+            value={weekStart}
+            onChange={(e) => setWeekStart(e.target.value)}
+            className="min-h-[40px] rounded-lg border border-border bg-surface px-2 text-[14px] font-medium text-ink focus:border-brand"
+          >
+            {weekOptions.map((o) => (
+              <option key={o.ws} value={o.ws}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Budget */}
         <div className="mb-4 rounded-card border border-border bg-surface shadow-soft p-4">
           <div className="flex items-center justify-between gap-3">
@@ -248,10 +319,12 @@ export function ShoppingClient({
 
         {items.length === 0 ? (
           <div className="rounded-card border border-dashed border-border bg-surface px-6 py-12 text-center">
-            <p className="text-[15px] font-medium text-ink">Your list is empty</p>
+            <p className="text-[15px] font-medium text-ink">
+              Nothing for this week yet
+            </p>
             <p className="mt-1 text-sm text-muted">
-              Tap &quot;Build from plan&quot; to turn this week&apos;s plan into a
-              shopping list, or add items by hand.
+              Pick a week above and tap &quot;Build from plan&quot; to turn its
+              plan into a shopping list, or add items by hand.
             </p>
           </div>
         ) : (

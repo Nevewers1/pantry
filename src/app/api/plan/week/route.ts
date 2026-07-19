@@ -232,6 +232,8 @@ export async function POST(request: Request) {
               : [];
             const ingRows = rawIngs
               .filter((x) => x && typeof x.name === "string" && String(x.name).trim())
+              // Never store the dish name itself as an ingredient.
+              .filter((x) => normalizeName(String(x.name)) !== key)
               .slice(0, 40)
               .map((x) => ({
                 recipe_id: rid,

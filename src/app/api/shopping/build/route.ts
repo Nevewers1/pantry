@@ -76,12 +76,25 @@ export async function POST(request: Request) {
     );
 
     if (recipeIds.length) {
+      // Guard against bad rows where a recipe's own title was stored as an
+      // "ingredient" — those are dish names, not things to buy.
+      const { data: recTitles } = await supabase
+        .from("recipes")
+        .select("title")
+        .in("id", recipeIds);
+      const titleSet = new Set(
+        (recTitles ?? [])
+          .map((r) => normalizeName(r.title as string))
+          .filter(Boolean)
+      );
+
       const { data: ings } = await supabase
         .from("recipe_ingredients")
         .select("name, quantity, unit, is_staple")
         .in("recipe_id", recipeIds);
       (ings ?? [])
         .filter((i) => !i.is_staple)
+        .filter((i) => !titleSet.has(normalizeName(i.name as string)))
         .forEach((i) =>
           needs.push({
             name: i.name as string,

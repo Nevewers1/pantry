@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ClockIcon, LeafIcon } from "@/components/icons";
 
 type ExpiringItem = {
@@ -62,9 +63,10 @@ export function UseSoonStrip({ items }: { items: ExpiringItem[] }) {
             const days = it.expiry_date ? daysUntil(it.expiry_date) : 99;
             const { text, dot, tone } = label(days);
             return (
-              <div
+              <Link
                 key={it.id}
-                className="min-w-[10rem] snap-start rounded-card border border-border bg-surface p-4 shadow-soft"
+                href={`/pantry?q=${encodeURIComponent(it.name)}`}
+                className="block min-w-[10rem] snap-start rounded-card border border-border bg-surface p-4 shadow-soft transition hover:border-brand-soft hover:shadow-hero"
               >
                 <p className="truncate text-[15px] font-medium text-ink">
                   {it.name}
@@ -81,7 +83,7 @@ export function UseSoonStrip({ items }: { items: ExpiringItem[] }) {
                     {text}
                   </span>
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>

@@ -31,15 +31,17 @@ export function PantryClient({
   initialItems,
   householdId,
   userId,
+  initialSearch = "",
 }: {
   initialItems: PantryItem[];
   householdId: string;
   userId: string;
+  initialSearch?: string;
 }) {
   const [items, setItems] = useState<PantryItem[]>(initialItems);
   const [locationFilter, setLocationFilter] = useState<LocationFilter>("all");
   const [sort, setSort] = useState<SortKey>("expiry");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<PantryItem | null>(null);
 
