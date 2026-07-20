@@ -55,6 +55,7 @@ export function FeedbackSheet({
       const { error: insErr } = await supabase.from("feedback").insert({
         household_id: householdId,
         user_id: user?.id ?? null,
+        user_email: user?.email ?? null,
         type,
         message: text.slice(0, 2000),
         page: page ?? null,
