@@ -193,6 +193,15 @@ export type DetectedItem = {
   expiry_estimated?: boolean;
 };
 
+// ---- In-app feedback / feature requests ------------------------------------
+export type FeedbackType = "feature" | "bug" | "general";
+
+export const FEEDBACK_TYPES: { value: FeedbackType; label: string }[] = [
+  { value: "feature", label: "Feature idea" },
+  { value: "bug", label: "Something's off" },
+  { value: "general", label: "General" },
+];
+
 export const COMMON_UNITS = [
   "ea",
   "pack",

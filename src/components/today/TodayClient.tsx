@@ -12,7 +12,14 @@ import {
 import { UseSoonStrip } from "@/components/UseSoonStrip";
 import { RecipeView } from "@/components/recipes/RecipeView";
 import { RecipePhoto } from "@/components/recipes/RecipePhoto";
-import { CheckIcon, LeafIcon, LogoutIcon, XIcon } from "@/components/icons";
+import { FeedbackSheet } from "@/components/FeedbackSheet";
+import {
+  CheckIcon,
+  LeafIcon,
+  LogoutIcon,
+  MessageIcon,
+  XIcon,
+} from "@/components/icons";
 import { signOut } from "@/app/actions";
 
 type ExpiringItem = {
@@ -75,6 +82,7 @@ export function TodayClient({
   const [pantry, setPantry] = useState<PantryRow[]>([]);
   const [toast, setToast] = useState<Toast>(null);
   const [viewRecipe, setViewRecipe] = useState<RecipeWithIngredients | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   async function openRecipe(id: string | null) {
     if (!id) return;
@@ -308,15 +316,25 @@ export function TodayClient({
               </p>
             </div>
           </div>
-          <form action={signOut}>
+          <div className="flex items-center gap-1">
             <button
-              type="submit"
-              aria-label="Sign out"
+              type="button"
+              onClick={() => setFeedbackOpen(true)}
+              aria-label="Send feedback"
               className="flex h-9 w-9 items-center justify-center rounded-xl text-muted hover:bg-surface hover:text-ink"
             >
-              <LogoutIcon className="h-5 w-5" />
+              <MessageIcon className="h-5 w-5" />
             </button>
-          </form>
+            <form action={signOut}>
+              <button
+                type="submit"
+                aria-label="Sign out"
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-muted hover:bg-surface hover:text-ink"
+              >
+                <LogoutIcon className="h-5 w-5" />
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 
@@ -495,6 +513,13 @@ export function TodayClient({
       </main>
 
       <RecipeView recipe={viewRecipe} onClose={() => setViewRecipe(null)} />
+
+      <FeedbackSheet
+        open={feedbackOpen}
+        householdId={householdId}
+        page="today"
+        onClose={() => setFeedbackOpen(false)}
+      />
 
       {toast && (
         <div className="safe-bottom fixed inset-x-4 bottom-20 z-[60] mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl bg-ink px-4 py-3 shadow-pop">

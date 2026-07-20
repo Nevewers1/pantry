@@ -19,6 +19,7 @@ import {
   Link as LinkGlyph,
   LogOut,
   Mail,
+  MessageSquare,
   Minus,
   Plus,
   ShoppingCart,
@@ -51,6 +52,7 @@ export const LeafIcon = wrap(Leaf);
 export const LinkIcon = wrap(LinkGlyph);
 export const LogoutIcon = wrap(LogOut);
 export const MailIcon = wrap(Mail);
+export const MessageIcon = wrap(MessageSquare);
 export const MinusIcon = wrap(Minus);
 export const PlateIcon = wrap(ChefHat);
 export const PlusIcon = wrap(Plus);
