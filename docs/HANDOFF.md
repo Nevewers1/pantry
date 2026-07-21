@@ -265,3 +265,5 @@ These cost us real time — don't repeat them.
 - **Meals:** meat + starch + veg most nights (Main + sides); pasta/curry etc. as
   Full meals; curries/stews pair with rice by default.
 - **Budget:** weekly cap in-app, adjustable.
+
+<!-- Handover verified 2026-07-21: project migrated to new Claude account; deploy pipeline (deploy key → GitHub → Vercel) tested green. -->
