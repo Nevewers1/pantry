@@ -7,6 +7,7 @@ type ExpiringItem = {
   expiry_date: string | null;
   quantity: number | null;
   unit: string | null;
+  expiry_estimated?: boolean | null;
 };
 
 function daysUntil(dateStr: string): number {
@@ -17,7 +18,18 @@ function daysUntil(dateStr: string): number {
   return Math.round((d.getTime() - today.getTime()) / 86_400_000);
 }
 
-function label(days: number): { text: string; dot: string; tone: string } {
+function label(
+  days: number,
+  estimated: boolean
+): { text: string; dot: string; tone: string } {
+  // AI-guessed dates are unreliable, so soften the wording instead of asserting.
+  if (estimated) {
+    if (days <= 0)
+      return { text: "may be expired", dot: "bg-danger", tone: "text-danger" };
+    if (days <= 4)
+      return { text: "check before use", dot: "bg-warn", tone: "text-warn" };
+    return { text: `~${days} days`, dot: "bg-faint", tone: "text-muted" };
+  }
   if (days < 0)
     return { text: "expired", dot: "bg-danger", tone: "text-danger" };
   if (days === 0) return { text: "today", dot: "bg-danger", tone: "text-danger" };
@@ -61,7 +73,7 @@ export function UseSoonStrip({ items }: { items: ExpiringItem[] }) {
         <div className="no-scrollbar -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
           {items.map((it) => {
             const days = it.expiry_date ? daysUntil(it.expiry_date) : 99;
-            const { text, dot, tone } = label(days);
+            const { text, dot, tone } = label(days, Boolean(it.expiry_estimated));
             return (
               <Link
                 key={it.id}

@@ -7,6 +7,7 @@ import type {
   DinnerStatus,
   PantrySlim,
   PlanDayResult,
+  RecipeDraft,
   RecipeRef,
 } from "@/lib/types";
 import {
@@ -14,8 +15,9 @@ import {
   CalendarIcon,
   ChevronRightIcon,
 } from "@/components/icons";
-import { namesMatch } from "@/lib/normalize";
+import { namesMatch, normalizeName } from "@/lib/normalize";
 import { LunchboxSheet } from "@/components/plan/LunchboxSheet";
+import { DaySuggestSheet } from "@/components/plan/DaySuggestSheet";
 
 type Day = PlanDayResult & { away: boolean; dinner_status: DinnerStatus };
 
@@ -70,18 +72,20 @@ export function PlanClient({
   childNames: [string, string];
 }) {
   const supabase = useMemo(() => createClient(), []);
+  // Local copy so AI-suggested dinners created on the fly appear in the picker.
+  const [localRecipes, setLocalRecipes] = useState<RecipeRef[]>(recipes);
   const recipeTitle = useMemo(() => {
     const m = new Map<string, string>();
-    recipes.forEach((r) => m.set(r.id, r.title));
+    localRecipes.forEach((r) => m.set(r.id, r.title));
     return m;
-  }, [recipes]);
+  }, [localRecipes]);
   const primaryRecipes = useMemo(
-    () => recipes.filter((r) => r.meal_type !== "side"),
-    [recipes]
+    () => localRecipes.filter((r) => r.meal_type !== "side"),
+    [localRecipes]
   );
   const sideRecipes = useMemo(
-    () => recipes.filter((r) => r.meal_type === "side"),
-    [recipes]
+    () => localRecipes.filter((r) => r.meal_type === "side"),
+    [localRecipes]
   );
 
   function addSide(i: number, id: string) {
@@ -133,6 +137,7 @@ export function PlanClient({
   const [uberCount, setUberCount] = useState<number | null>(null);
   const [names, setNames] = useState<[string, string]>(childNames);
   const [lunchboxDate, setLunchboxDate] = useState<string | null>(null);
+  const [suggestIndex, setSuggestIndex] = useState<number | null>(null);
 
   async function saveName(slot: 1 | 2, value: string) {
     setNames((n) => (slot === 1 ? [value, n[1]] : [n[0], value]));
@@ -421,6 +426,76 @@ export function PlanClient({
     setSaved(false);
   }
 
+  // Persist an AI-suggested dinner as a real recipe (reusing one by title if it
+  // already exists in the library). Returns a RecipeRef, or null on failure.
+  async function createOrGetRecipe(draft: RecipeDraft): Promise<RecipeRef | null> {
+    const key = normalizeName(draft.title);
+    const existing = localRecipes.find(
+      (r) => normalizeName(r.title) === key && r.meal_type !== "side"
+    );
+    if (existing) return existing;
+
+    const meal_type = draft.meal_type === "main" ? "main" : "full";
+    const { data: rec, error: recErr } = await supabase
+      .from("recipes")
+      .insert({
+        household_id: householdId,
+        title: draft.title.slice(0, 120),
+        source_type: "suggested",
+        servings: draft.servings || 4,
+        prep_min: draft.prep_min,
+        cook_min: draft.cook_min,
+        meal_type,
+        instructions: draft.instructions || null,
+        tags: draft.tags ?? [],
+      })
+      .select("id, title, tags, meal_type, is_favourite")
+      .single();
+    if (recErr || !rec) {
+      setError(recErr?.message ?? "Couldn't save that dinner.");
+      return null;
+    }
+
+    const ingRows = draft.ingredients
+      .filter((x) => x.name && normalizeName(x.name) !== key)
+      .slice(0, 40)
+      .map((x) => ({
+        recipe_id: rec.id,
+        name: normalizeName(x.name),
+        quantity:
+          typeof x.quantity === "number" && Number.isFinite(x.quantity)
+            ? x.quantity
+            : null,
+        unit: x.unit ? String(x.unit).slice(0, 16) : null,
+        is_staple: Boolean(x.is_staple),
+      }));
+    if (ingRows.length)
+      await supabase.from("recipe_ingredients").insert(ingRows);
+
+    const ref: RecipeRef = {
+      id: rec.id as string,
+      title: rec.title as string,
+      tags: (rec.tags as string[]) ?? [],
+      meal_type: (rec.meal_type as RecipeRef["meal_type"]) ?? "full",
+      is_favourite: Boolean(rec.is_favourite),
+    };
+    setLocalRecipes((prev) => [ref, ...prev]);
+    return ref;
+  }
+
+  // "Use for this day": save the recipe and assign it to the day.
+  async function applySuggestion(i: number, draft: RecipeDraft) {
+    const ref = await createOrGetRecipe(draft);
+    if (!ref) return;
+    setDay(i, { dinner_recipe_id: ref.id, dinner_note: null, dinner_side_ids: [] });
+    setSuggestIndex(null);
+  }
+
+  // "Save to recipes": add to the library without touching the plan.
+  async function saveSuggestionToLibrary(draft: RecipeDraft) {
+    await createOrGetRecipe(draft);
+  }
+
   async function savePlan() {
     if (!plan) return;
     setError(null);
@@ -631,9 +706,20 @@ export function PlanClient({
                   ) : (
                     <div className="space-y-2">
                       <div>
-                        <p className="mb-1 text-[12px] font-medium uppercase tracking-wide text-muted">
-                          Dinner
-                        </p>
+                        <div className="mb-1 flex items-center justify-between">
+                          <p className="text-[12px] font-medium uppercase tracking-wide text-muted">
+                            Dinner
+                          </p>
+                          {day.dinner_status === "home" && (
+                            <button
+                              type="button"
+                              onClick={() => setSuggestIndex(i)}
+                              className="text-[12px] font-medium text-brand underline-offset-4 hover:underline"
+                            >
+                              Suggest (AI)
+                            </button>
+                          )}
+                        </div>
                         <div className="mb-1.5 flex gap-1.5">
                           {DINNER_STATUSES.map((s) => {
                             const on = day.dinner_status === s.value;
@@ -785,6 +871,30 @@ export function PlanClient({
         childNames={names}
         pantry={pantry}
         onClose={() => setLunchboxDate(null)}
+      />
+
+      <DaySuggestSheet
+        date={
+          suggestIndex !== null && plan ? plan[suggestIndex]?.date ?? null : null
+        }
+        kidsPresent={
+          suggestIndex !== null && plan
+            ? Boolean(plan[suggestIndex]?.kids_present)
+            : false
+        }
+        excludeTitles={
+          plan
+            ? plan
+                .filter((_, idx) => idx !== suggestIndex)
+                .map((d) => (d.dinner_recipe_id ? recipeTitle.get(d.dinner_recipe_id) : null))
+                .filter((t): t is string => Boolean(t))
+            : []
+        }
+        onPick={(draft) => {
+          if (suggestIndex !== null) return applySuggestion(suggestIndex, draft);
+        }}
+        onSave={(draft) => saveSuggestionToLibrary(draft)}
+        onClose={() => setSuggestIndex(null)}
       />
     </div>
   );

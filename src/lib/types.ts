@@ -128,6 +128,18 @@ export type ShoppingItem = {
   est_price: number | null;
   is_checked: boolean;
   added_to_pantry: boolean;
+  product_name?: string | null;
+  product_image?: string | null;
+  product_source?: string | null;
+};
+
+// A specific product option for a shopping item (from price lookup).
+export type ProductOption = {
+  store: StoreTag;
+  price: number;
+  title: string;
+  image: string | null;
+  source: string;
 };
 
 export type LunchComponent = "crunch_sip" | "afternoon_tea" | "recess";
