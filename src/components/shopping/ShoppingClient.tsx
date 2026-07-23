@@ -81,6 +81,9 @@ export function ShoppingClient({
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newItem, setNewItem] = useState("");
+  // --- TEST ONLY: Woolies cart injection (branch test/woolies-cart) ---------
+  const [wooliesScript, setWooliesScript] = useState("");
+  const [wooliesOpen, setWooliesOpen] = useState(false);
 
   // Load the list for whichever week is selected: items from that week's plan,
   // plus any manually-added items (which aren't tied to a week).
@@ -470,6 +473,62 @@ export function ShoppingClient({
     if (data) setItems((arr) => [...arr, data as ShoppingItem]);
   }
 
+  // --- TEST ONLY: build a same-origin script to search + add each item to the
+  // Woolworths trolley. Runs ON woolworths.com.au (pasted into console), which a
+  // native webview would inject automatically. Not shipped to production.
+  function buildWooliesScript(names: string[]): string {
+    return `(async () => {
+  const items = ${JSON.stringify(names)};
+  const out = [];
+  for (const name of items) {
+    try {
+      const sr = await fetch("/apis/ui/Search/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ SearchTerm: name, PageNumber: 1, PageSize: 1, SortType: "TraderRelevance", Location: "/shop/search/products?searchTerm=" + encodeURIComponent(name), IsSpecial: false, Filters: [] })
+      });
+      const data = await sr.json();
+      let stockcode = null, display = null;
+      const groups = (data && (data.Products || data.products)) || [];
+      for (const g of groups) {
+        const prods = (g && (g.Products || g.products)) || [g];
+        for (const p of prods) {
+          if (p && (p.Stockcode || p.stockcode)) { stockcode = p.Stockcode || p.stockcode; display = p.Name || p.DisplayName; break; }
+        }
+        if (stockcode) break;
+      }
+      if (!stockcode) { out.push("no match: " + name); continue; }
+      const ar = await fetch("/api/v3/ui/trolley/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "*/*" },
+        credentials: "include",
+        body: JSON.stringify({ items: [{ stockcode: Number(stockcode), quantity: 1, source: "pantry-test" }] })
+      });
+      out.push((ar.ok ? "OK " : "FAIL ") + name + " -> " + (display || stockcode));
+      await new Promise(r => setTimeout(r, 500));
+    } catch (e) { out.push("err " + name + ": " + e.message); }
+  }
+  console.log("Pantry -> Woolies\\n" + out.join("\\n"));
+  alert("Added " + out.filter(x => x.indexOf("OK ") === 0).length + " of " + items.length + " items. Refreshing...");
+  location.reload();
+})();`;
+  }
+
+  async function shopAtWoolies() {
+    const names = items.filter((i) => !i.is_checked).map((i) => i.name);
+    if (!names.length) return;
+    const script = buildWooliesScript(names);
+    setWooliesScript(script);
+    try {
+      await navigator.clipboard.writeText(script);
+    } catch {
+      /* clipboard may be blocked — the modal shows the script to copy by hand */
+    }
+    window.open("https://www.woolworths.com.au/shop/browse", "_blank");
+    setWooliesOpen(true);
+  }
+
   const groups = STORES.map((s) => ({
     store: s,
     items: items
@@ -590,6 +649,16 @@ export function ShoppingClient({
               {pricing ? "…" : "Update prices"}
             </button>
           </div>
+        )}
+
+        {/* TEST ONLY: Shop at Woolies (cart injection proof-of-concept) */}
+        {items.length > 0 && (
+          <button
+            onClick={shopAtWoolies}
+            className="mb-4 flex min-h-tap w-full items-center justify-center gap-2 rounded-xl bg-[#178841] text-[15px] font-semibold text-white hover:opacity-90"
+          >
+            🛒 Shop at Woolies (test)
+          </button>
         )}
 
         {/* Add manual */}
@@ -837,6 +906,59 @@ export function ShoppingClient({
           </div>
         )}
       </main>
+
+      {/* TEST ONLY: Woolies injection instructions */}
+      {wooliesOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center"
+          onClick={() => setWooliesOpen(false)}
+        >
+          <div
+            className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-card bg-bg shadow-pop safe-bottom sm:rounded-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border p-5">
+              <h2 className="text-[17px] font-semibold text-ink">Shop at Woolies (test)</h2>
+              <button
+                onClick={() => setWooliesOpen(false)}
+                className="text-[18px] text-muted hover:text-ink"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 text-[14px] text-ink">
+              <p className="mb-3">
+                Woolworths opened in a new tab and the add-to-cart script is copied
+                to your clipboard. A native app would run this itself — for the test,
+                run it once by hand:
+              </p>
+              <ol className="mb-3 list-decimal space-y-1 pl-5 text-[13px] text-muted">
+                <li>Switch to the Woolworths tab and <b>log in</b>.</li>
+                <li>Open the browser <b>console</b> (desktop: ⌥⌘I → Console).</li>
+                <li><b>Paste</b> (⌘V) and press Enter.</li>
+                <li>It searches + adds each item, then refreshes — check your cart.</li>
+              </ol>
+              <p className="mb-1 text-[12px] font-medium text-muted">Script (copy if needed):</p>
+              <textarea
+                readOnly
+                value={wooliesScript}
+                onFocus={(e) => e.currentTarget.select()}
+                className="h-32 w-full rounded-lg border border-border bg-surface p-2 font-mono text-[11px] text-ink"
+              />
+              <button
+                onClick={() => navigator.clipboard?.writeText(wooliesScript)}
+                className="mt-2 w-full rounded-lg border border-border bg-surface py-2 text-[13px] font-medium text-ink hover:bg-bg"
+              >
+                Copy script again
+              </button>
+              <p className="mt-3 text-[12px] text-faint">
+                Test only. Grey-area (automates your own Woolies cart); adds are
+                reversible. Not part of the live app.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
