@@ -31,6 +31,20 @@ Return ONLY compact JSON (no prose, no markdown fences), and keep it short enoug
 {"suggestions":[{"title":"string","servings":number,"prep_min":number|null,"cook_min":number|null,"tags":["kid_friendly"|"lunchbox"|"snack"|"quick"|"freezer_friendly"|"adults_only"],"instructions":"string","ingredients":[{"name":"string","quantity":number|null,"unit":"string|null","is_staple":boolean}]}]}
 - is_staple true for salt, pepper, water, oil, butter, common dried spices.`;
 
+const LUNCH_PROMPT = `You suggest simple, quick LUNCHES a household can make in minutes from what they already have.
+You get their current pantry/fridge/freezer list; some items are flagged (use soon).
+Propose exactly 3 EASY lunches. Think sandwiches, wraps, toasties, rolls, salads, snack/grazing plates,
+leftovers reheated, eggs on toast, a piece of fruit with yoghurt — NOT dinner-style cooked meals.
+Rules:
+- Keep it genuinely simple: mostly assembly or minimal heating, ready in ~5-10 minutes.
+- No multi-component mains, no roasting, no "pan-seared … with three sides". If it sounds like dinner, it's too complex.
+- Favour items flagged (use soon). Build mostly from listed items; assume basic staples (bread, butter, salt, pepper, oil).
+- AVOID chilli / spicy heat entirely (household preference).
+- Keep the method to 1-3 short steps.
+Return ONLY compact JSON (no prose, no markdown fences), and keep it short enough to be complete:
+{"suggestions":[{"title":"string","servings":number,"prep_min":number|null,"cook_min":number|null,"tags":["kid_friendly"|"lunchbox"|"snack"|"quick"|"freezer_friendly"|"adults_only"],"instructions":"string","ingredients":[{"name":"string","quantity":number|null,"unit":"string|null","is_staple":boolean}]}]}
+- is_staple true for salt, pepper, water, oil, butter, common dried spices.`;
+
 function extractJson(text: string): { suggestions?: unknown[] } | null {
   const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   const tryParse = (s: string): unknown => {
@@ -64,12 +78,22 @@ function extractJson(text: string): { suggestions?: unknown[] } | null {
   return null;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
+  // Optional { kind: "lunch" } switches to the simple-lunch prompt.
+  let kind = "meal";
+  try {
+    const body = await request.json();
+    if (body && body.kind === "lunch") kind = "lunch";
+  } catch {
+    /* no body → default dinner-style suggestions */
+  }
+  const systemPrompt = kind === "lunch" ? LUNCH_PROMPT : SYSTEM_PROMPT;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -117,7 +141,7 @@ export async function POST() {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 4000,
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         messages: [
           { role: "user", content: `Current stock:\n${list}\n\nSuggest meals.` },
         ],

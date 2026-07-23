@@ -113,7 +113,11 @@ export function TodayClient({
   async function genLunchIdeas() {
     setLunchLoading(true);
     try {
-      const res = await fetch("/api/plan/suggest", { method: "POST" });
+      const res = await fetch("/api/plan/suggest", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "lunch" }),
+      });
       const data = await res.json();
       if (res.ok)
         setLunchIdeas(((data.suggestions ?? []) as { title: string }[]).slice(0, 3));
