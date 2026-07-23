@@ -476,38 +476,42 @@ export function ShoppingClient({
   // --- TEST ONLY: build a same-origin script to search + add each item to the
   // Woolworths trolley. Runs ON woolworths.com.au (pasted into console), which a
   // native webview would inject automatically. Not shipped to production.
-  function buildWooliesScript(names: string[]): string {
+  function buildWooliesScript(entries: { q: string; alt: string }[]): string {
     return `(async () => {
-  const items = ${JSON.stringify(names)};
+  const items = ${JSON.stringify(entries)};
   const out = [];
-  for (const name of items) {
-    try {
-      const sr = await fetch("/apis/ui/Search/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ SearchTerm: name, PageNumber: 1, PageSize: 1, SortType: "TraderRelevance", Location: "/shop/search/products?searchTerm=" + encodeURIComponent(name), IsSpecial: false, Filters: [] })
-      });
-      const data = await sr.json();
-      let stockcode = null, display = null;
-      const groups = (data && (data.Products || data.products)) || [];
-      for (const g of groups) {
-        const prods = (g && (g.Products || g.products)) || [g];
-        for (const p of prods) {
-          if (p && (p.Stockcode || p.stockcode)) { stockcode = p.Stockcode || p.stockcode; display = p.Name || p.DisplayName; break; }
-        }
-        if (stockcode) break;
+  async function findStockcode(term) {
+    const sr = await fetch("/apis/ui/Search/products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ SearchTerm: term, PageNumber: 1, PageSize: 5, SortType: "TraderRelevance", Location: "/shop/search/products?searchTerm=" + encodeURIComponent(term), IsSpecial: false, Filters: [] })
+    });
+    const data = await sr.json();
+    const groups = (data && (data.Products || data.products)) || [];
+    for (const g of groups) {
+      const prods = (g && (g.Products || g.products)) || [g];
+      for (const p of prods) {
+        if (p && (p.Stockcode || p.stockcode)) return { stockcode: p.Stockcode || p.stockcode, display: p.Name || p.DisplayName };
       }
-      if (!stockcode) { out.push("no match: " + name); continue; }
+    }
+    return null;
+  }
+  for (const it of items) {
+    try {
+      const terms = it.q === it.alt ? [it.q] : [it.q, it.alt];
+      let match = null;
+      for (const t of terms) { match = await findStockcode(t); if (match) break; }
+      if (!match) { out.push("no match: " + it.q); continue; }
       const ar = await fetch("/api/v3/ui/trolley/update", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "*/*" },
         credentials: "include",
-        body: JSON.stringify({ items: [{ stockcode: Number(stockcode), quantity: 1, source: "pantry-test" }] })
+        body: JSON.stringify({ items: [{ stockcode: Number(match.stockcode), quantity: 1, source: "pantry-test" }] })
       });
-      out.push((ar.ok ? "OK " : "FAIL ") + name + " -> " + (display || stockcode));
+      out.push((ar.ok ? "OK " : "FAIL ") + (match.display || match.stockcode));
       await new Promise(r => setTimeout(r, 500));
-    } catch (e) { out.push("err " + name + ": " + e.message); }
+    } catch (e) { out.push("err " + it.q + ": " + e.message); }
   }
   console.log("Pantry -> Woolies\\n" + out.join("\\n"));
   alert("Added " + out.filter(x => x.indexOf("OK ") === 0).length + " of " + items.length + " items. Refreshing...");
@@ -516,9 +520,11 @@ export function ShoppingClient({
   }
 
   async function shopAtWoolies() {
-    const names = items.filter((i) => !i.is_checked).map((i) => i.name);
-    if (!names.length) return;
-    const script = buildWooliesScript(names);
+    const entries = items
+      .filter((i) => !i.is_checked)
+      .map((i) => ({ q: (i.product_name?.trim() || i.name), alt: i.name }));
+    if (!entries.length) return;
+    const script = buildWooliesScript(entries);
     setWooliesScript(script);
     try {
       await navigator.clipboard.writeText(script);
