@@ -476,7 +476,9 @@ export function ShoppingClient({
   // --- TEST ONLY: build a same-origin script to search + add each item to the
   // Woolworths trolley. Runs ON woolworths.com.au (pasted into console), which a
   // native webview would inject automatically. Not shipped to production.
-  function buildWooliesScript(entries: { q: string; alt: string }[]): string {
+  function buildWooliesScript(
+    entries: { q: string; alt: string; qty: number }[]
+  ): string {
     return `(async () => {
   const items = ${JSON.stringify(entries)};
   const out = [];
@@ -507,9 +509,9 @@ export function ShoppingClient({
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "*/*" },
         credentials: "include",
-        body: JSON.stringify({ items: [{ stockcode: Number(match.stockcode), quantity: 1, source: "pantry-test" }] })
+        body: JSON.stringify({ items: [{ stockcode: Number(match.stockcode), quantity: it.qty || 1, source: "pantry-test" }] })
       });
-      out.push((ar.ok ? "OK " : "FAIL ") + (match.display || match.stockcode));
+      out.push((ar.ok ? "OK " : "FAIL ") + "x" + (it.qty || 1) + " " + (match.display || match.stockcode));
       await new Promise(r => setTimeout(r, 500));
     } catch (e) { out.push("err " + it.q + ": " + e.message); }
   }
@@ -520,10 +522,21 @@ export function ShoppingClient({
   }
 
   async function shopAtWoolies() {
+    const measure = ["ml", "l", "litre", "liter", "g", "kg"];
     const entries = items
-      .filter((i) => !i.is_checked)
-      .map((i) => ({ q: (i.product_name?.trim() || i.name), alt: i.name }));
-    if (!entries.length) return;
+      .filter((i) => !i.is_checked && i.store === "woolies")
+      .map((i) => {
+        const u = (i.unit || "").toLowerCase();
+        const q = i.quantity ?? 1;
+        // Only treat quantity as a pack count for whole, small, non-measure units.
+        const qty =
+          !measure.includes(u) && Number.isInteger(q) && q >= 1 && q <= 12 ? q : 1;
+        return { q: i.product_name?.trim() || i.name, alt: i.name, qty };
+      });
+    if (!entries.length) {
+      setError("No Woolies items on the list — assign items to Woolies first.");
+      return;
+    }
     const script = buildWooliesScript(entries);
     setWooliesScript(script);
     try {
@@ -663,7 +676,7 @@ export function ShoppingClient({
             onClick={shopAtWoolies}
             className="mb-4 flex min-h-tap w-full items-center justify-center gap-2 rounded-xl bg-[#178841] text-[15px] font-semibold text-white hover:opacity-90"
           >
-            🛒 Shop at Woolies (test)
+            🛒 Add Woolies items to cart (test)
           </button>
         )}
 
@@ -759,12 +772,40 @@ export function ShoppingClient({
                             />
                           </button>
                           <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted">
-                            {it.quantity != null && (
-                              <span>
-                                {it.quantity}
+                            <span className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateField(it.id, {
+                                    quantity: Math.max(
+                                      1,
+                                      Math.round(((it.quantity ?? 1) - 1) * 100) / 100
+                                    ),
+                                  })
+                                }
+                                aria-label="Decrease quantity"
+                                className="flex h-5 w-5 items-center justify-center rounded border border-border text-ink hover:bg-bg"
+                              >
+                                −
+                              </button>
+                              <span className="min-w-[2.5rem] text-center">
+                                {it.quantity ?? 1}
                                 {it.unit ? ` ${it.unit}` : ""}
                               </span>
-                            )}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateField(it.id, {
+                                    quantity:
+                                      Math.round(((it.quantity ?? 1) + 1) * 100) / 100,
+                                  })
+                                }
+                                aria-label="Increase quantity"
+                                className="flex h-5 w-5 items-center justify-center rounded border border-border text-ink hover:bg-bg"
+                              >
+                                +
+                              </button>
+                            </span>
                             <select
                               value={it.store}
                               onChange={(e) =>
