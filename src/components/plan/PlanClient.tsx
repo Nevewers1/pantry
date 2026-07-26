@@ -136,6 +136,8 @@ export function PlanClient({
   const [saved, setSaved] = useState(false);
   const [uberCount, setUberCount] = useState<number | null>(null);
   const [recentDinnerIds, setRecentDinnerIds] = useState<Set<string>>(new Set());
+  // recipe id -> how many of its non-staple ingredients are expiring soon
+  const [wasteScores, setWasteScores] = useState<Map<string, number>>(new Map());
   const [names, setNames] = useState<[string, string]>(childNames);
   const [lunchboxDate, setLunchboxDate] = useState<string | null>(null);
   const [suggestIndex, setSuggestIndex] = useState<number | null>(null);
@@ -278,6 +280,47 @@ export function PlanClient({
     loadRecent();
   }, [loadRecent]);
 
+  // Waste-bias: score saved recipes by how many of their non-staple ingredients
+  // match a soon-to-expire pantry item, so generate() can lead with them.
+  const loadWasteScores = useCallback(async () => {
+    const ids = primaryRecipes.map((r) => r.id);
+    if (!ids.length) {
+      setWasteScores(new Map());
+      return;
+    }
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 4);
+    const { data: exp } = await supabase
+      .from("pantry_items")
+      .select("name, expiry_date")
+      .not("expiry_date", "is", null)
+      .gt("quantity", 0)
+      .lte("expiry_date", ymd(soon));
+    const soonNames = (exp ?? []).map((e) => e.name as string);
+    if (!soonNames.length) {
+      setWasteScores(new Map());
+      return;
+    }
+    const { data: ings } = await supabase
+      .from("recipe_ingredients")
+      .select("recipe_id, name, is_staple")
+      .in("recipe_id", ids);
+    const scores = new Map<string, number>();
+    (ings ?? []).forEach((i) => {
+      if (i.is_staple) return;
+      const hit = soonNames.some((n) => namesMatch(i.name as string, n));
+      if (hit) {
+        const rid = i.recipe_id as string;
+        scores.set(rid, (scores.get(rid) ?? 0) + 1);
+      }
+    });
+    setWasteScores(scores);
+  }, [supabase, primaryRecipes]);
+
+  useEffect(() => {
+    loadWasteScores();
+  }, [loadWasteScores]);
+
   async function saveAnchor(value: string) {
     setAnchor(value || null);
     await supabase
@@ -290,10 +333,11 @@ export function PlanClient({
   async function generate() {
     setError(null);
     setSaved(false);
-    // Push recently-used dinners to the back so weeks don't repeat; keep
-    // favourites first among the rest.
+    // Order: recipes that use soon-to-expire items first (cut waste), then push
+    // recently-used dinners to the back (no week-to-week repeats), then favourites.
     const primaries = [...primaryRecipes].sort(
       (a, b) =>
+        (wasteScores.get(b.id) ?? 0) - (wasteScores.get(a.id) ?? 0) ||
         Number(recentDinnerIds.has(a.id)) - Number(recentDinnerIds.has(b.id)) ||
         Number(b.is_favourite) - Number(a.is_favourite)
     );
@@ -774,6 +818,11 @@ export function PlanClient({
         >
           {plan ? "Rebuild from my recipes" : "Plan my week"}
         </button>
+        {wasteScores.size > 0 && (
+          <p className="mt-2 text-center text-[12px] text-brand">
+            Leads with recipes that use your soon-to-expire items.
+          </p>
+        )}
         <div className="mb-2 mt-2 flex items-center justify-center gap-1 text-[12px] text-muted">
           <span>Thin on recipes?</span>
           <button
