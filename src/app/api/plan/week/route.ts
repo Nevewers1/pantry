@@ -24,9 +24,12 @@ Rules:
     • If the primary is a "main" → add a starch side + a veg side when suitable sides exist.
     • Saucy mains (curry, stew, chilli-free braise) → always include a rice-type starch side.
     • It's fine to leave veg off; the family adds veg by hand. Only use ids from the side list.
-- This is a PLAN the household will SHOP for, so you are NOT limited to current stock — suggest
-  good, varied, appealing dinners freely (new ideas are welcome). Current stock is context only:
-  it's a nice bonus to use up "use soon" items, but don't constrain the menu to the pantry.
+- WASTE FIRST (important): for EACH item flagged "(use soon)" in the stock list, make sure the week
+  includes a dinner that features it as a main/hero ingredient so it gets eaten before it spoils.
+  You may FREELY ADD other ingredients the household will buy to complete that meal — e.g. rice to
+  use up → a rice dish, adding fish they'll purchase. Work the use-soon items into the earlier days.
+- For the REMAINING dinners you are NOT limited to stock — suggest good, varied, appealing meals
+  freely (new ideas welcome). The household shops for this plan, so don't constrain it to the pantry.
 - Don't repeat a dinner within the week, and AVOID dinners listed as recently cooked (see below).
 - Avoid chilli/spicy heat.
 - breakfast_note: only on kids-here WEEKEND days — a simple cooked breakfast idea; otherwise null.
