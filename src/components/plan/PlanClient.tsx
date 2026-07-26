@@ -135,6 +135,7 @@ export function PlanClient({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [uberCount, setUberCount] = useState<number | null>(null);
+  const [recentDinnerIds, setRecentDinnerIds] = useState<Set<string>>(new Set());
   const [names, setNames] = useState<[string, string]>(childNames);
   const [lunchboxDate, setLunchboxDate] = useState<string | null>(null);
   const [suggestIndex, setSuggestIndex] = useState<number | null>(null);
@@ -234,6 +235,37 @@ export function PlanClient({
     loadUber();
   }, [loadUber]);
 
+  // Dinners used in the prior ~3 weeks, to avoid repeating week to week.
+  const loadRecent = useCallback(async () => {
+    const start = addDays(weekStart, -21);
+    const { data: plans } = await supabase
+      .from("meal_plans")
+      .select("id")
+      .eq("household_id", householdId)
+      .gte("week_start_date", ymd(start))
+      .lt("week_start_date", ymd(weekStart));
+    const ids = (plans ?? []).map((p) => p.id as string);
+    if (!ids.length) {
+      setRecentDinnerIds(new Set());
+      return;
+    }
+    const { data: days } = await supabase
+      .from("meal_plan_days")
+      .select("dinner_recipe_id")
+      .in("meal_plan_id", ids);
+    setRecentDinnerIds(
+      new Set(
+        (days ?? [])
+          .map((d) => d.dinner_recipe_id as string | null)
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+  }, [supabase, householdId, weekStart]);
+
+  useEffect(() => {
+    loadRecent();
+  }, [loadRecent]);
+
   async function saveAnchor(value: string) {
     setAnchor(value || null);
     await supabase
@@ -246,8 +278,12 @@ export function PlanClient({
   async function generate() {
     setError(null);
     setSaved(false);
+    // Push recently-used dinners to the back so weeks don't repeat; keep
+    // favourites first among the rest.
     const primaries = [...primaryRecipes].sort(
-      (a, b) => Number(b.is_favourite) - Number(a.is_favourite)
+      (a, b) =>
+        Number(recentDinnerIds.has(a.id)) - Number(recentDinnerIds.has(b.id)) ||
+        Number(b.is_favourite) - Number(a.is_favourite)
     );
     if (primaries.length === 0) {
       setError(
@@ -369,10 +405,18 @@ export function PlanClient({
     setSaved(false);
     try {
       const days = dates.map((d) => ({ date: ymd(d), kids_present: kidsFor(d) }));
+      const avoid = [...recentDinnerIds]
+        .map((id) => recipeTitle.get(id))
+        .filter((t): t is string => Boolean(t));
       const res = await fetch("/api/plan/week", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ week_start: ymd(weekStart), days, childNames: names }),
+        body: JSON.stringify({
+          week_start: ymd(weekStart),
+          days,
+          childNames: names,
+          avoid,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -561,7 +605,7 @@ export function PlanClient({
         </div>
       </header>
 
-      <main className="mx-auto max-w-lg px-5 pb-24 pt-4">
+      <main className="mx-auto max-w-lg px-5 pb-40 pt-4">
         {uberCount !== null && (
           <div className="mb-4 flex items-center justify-between rounded-card border border-border bg-surface shadow-soft px-4 py-3">
             <span className="text-[14px] text-ink">Ordered in this month</span>
@@ -852,16 +896,23 @@ export function PlanClient({
                 </div>
               );
             })}
+          </div>
+        )}
+      </main>
 
+      {/* Sticky save — always reachable, sits above the bottom nav */}
+      {plan && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 px-5">
+          <div className="mx-auto max-w-lg">
             <button
               onClick={savePlan}
-              className="min-h-tap w-full rounded-xl bg-brand text-[15px] font-medium text-white hover:bg-brand-hover"
+              className="pointer-events-auto min-h-tap w-full rounded-xl bg-brand text-[15px] font-semibold text-white shadow-pop hover:bg-brand-hover"
             >
               {saved ? "Saved ✓" : "Save this plan"}
             </button>
           </div>
-        )}
-      </main>
+        </div>
+      )}
 
       <LunchboxSheet
         date={lunchboxDate}

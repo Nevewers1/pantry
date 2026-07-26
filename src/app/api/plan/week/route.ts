@@ -24,7 +24,11 @@ Rules:
     • If the primary is a "main" → add a starch side + a veg side when suitable sides exist.
     • Saucy mains (curry, stew, chilli-free braise) → always include a rice-type starch side.
     • It's fine to leave veg off; the family adds veg by hand. Only use ids from the side list.
-- Favour stock flagged "use soon"; don't repeat a dinner within the week; avoid chilli/spicy heat.
+- This is a PLAN the household will SHOP for, so you are NOT limited to current stock — suggest
+  good, varied, appealing dinners freely (new ideas are welcome). Current stock is context only:
+  it's a nice bonus to use up "use soon" items, but don't constrain the menu to the pantry.
+- Don't repeat a dinner within the week, and AVOID dinners listed as recently cooked (see below).
+- Avoid chilli/spicy heat.
 - breakfast_note: only on kids-here WEEKEND days — a simple cooked breakfast idea; otherwise null.
 - lunch_note: an optional adults' work-lunch idea; otherwise null.
 - LUNCHBOXES: for each kids-here day, for BOTH children, propose ONE item per component:
@@ -85,12 +89,15 @@ export async function POST(request: Request) {
 
   let days: { date: string; kids_present: boolean }[] = [];
   let childNames: [string, string] = ["Zyana", "Micah"];
+  let avoid: string[] = [];
   try {
     const body = await request.json();
     days = Array.isArray(body.days) ? body.days : [];
     if (Array.isArray(body.childNames) && body.childNames.length === 2) {
       childNames = [String(body.childNames[0]), String(body.childNames[1])];
     }
+    if (Array.isArray(body.avoid))
+      avoid = body.avoid.filter((t: unknown) => typeof t === "string").slice(0, 30);
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
@@ -159,7 +166,13 @@ export async function POST(request: Request) {
         messages: [
           {
             role: "user",
-            content: `Children: 1=${childNames[0]}, 2=${childNames[1]}\n\nDays to plan:\n${dayLines}\n\nRecipe library:\n${recipeList}\n\nCurrent stock:\n${stockList}\n\nPlan the week.`,
+            content: `Children: 1=${childNames[0]}, 2=${childNames[1]}\n\nDays to plan:\n${dayLines}\n\nRecipe library:\n${recipeList}\n\nCurrent stock:\n${stockList}${
+              avoid.length
+                ? `\n\nRecently cooked (do NOT use these again this week):\n${avoid
+                    .map((t) => `- ${t}`)
+                    .join("\n")}`
+                : ""
+            }\n\nPlan the week.`,
           },
         ],
       }),
