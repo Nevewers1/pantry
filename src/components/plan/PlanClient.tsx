@@ -139,6 +139,8 @@ export function PlanClient({
   const [names, setNames] = useState<[string, string]>(childNames);
   const [lunchboxDate, setLunchboxDate] = useState<string | null>(null);
   const [suggestIndex, setSuggestIndex] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(ymd(new Date()));
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function saveName(slot: 1 | 2, value: string) {
     setNames((n) => (slot === 1 ? [value, n[1]] : [n[0], value]));
@@ -152,6 +154,16 @@ export function PlanClient({
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
+
+  const todayStr = ymd(new Date());
+
+  // Default the focused day to today when it's in view, else the week's start.
+  useEffect(() => {
+    const today = ymd(new Date());
+    const inWeek = dates.some((d) => ymd(d) === today);
+    setSelectedDate(inWeek ? today : ymd(weekStart));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
 
   const defaultKids = useCallback(
     (date: Date): boolean => {
@@ -470,6 +482,16 @@ export function PlanClient({
     setSaved(false);
   }
 
+  // Flip kids-here / adults-only for a date (override + any saved plan day).
+  function toggleKids(dateStr: string) {
+    const next = !(overrides[dateStr] ?? defaultKids(new Date(dateStr)));
+    setOverrides((o) => ({ ...o, [dateStr]: next }));
+    setPlan((p) =>
+      p ? p.map((d) => (d.date === dateStr ? { ...d, kids_present: next } : d)) : p
+    );
+    setSaved(false);
+  }
+
   // Persist an AI-suggested dinner as a real recipe (reusing one by title if it
   // already exists in the library). Returns a RecipeRef, or null on failure.
   async function createOrGetRecipe(draft: RecipeDraft): Promise<RecipeRef | null> {
@@ -644,55 +666,105 @@ export function PlanClient({
           </button>
         </div>
 
-        {/* Kids cycle anchor */}
-        <div className="mb-4 flex flex-col gap-1.5 rounded-card border border-border bg-surface shadow-soft p-4">
-          <label htmlFor="anchor" className="text-[13px] font-medium text-ink">
-            Kids cycle start <span className="text-faint">(a Monday they arrive)</span>
-          </label>
-          <input
-            id="anchor"
-            type="date"
-            value={anchor ?? ""}
-            onChange={(e) => saveAnchor(e.target.value)}
-            className="min-h-tap w-full rounded-xl border border-border bg-surface px-3.5 text-[15px] text-ink focus:border-brand"
-          />
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {([1, 2] as const).map((slot) => (
-              <input
-                key={slot}
-                value={names[slot - 1]}
-                onChange={(e) => saveName(slot, e.target.value)}
-                aria-label={`Child ${slot} name`}
-                placeholder={`Child ${slot}`}
-                className="min-h-[42px] w-full rounded-lg border border-border bg-surface px-3 text-[14px] text-ink focus:border-brand"
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Day toggles (for generating) */}
-        <div className="mb-4 overflow-hidden rounded-card border border-border bg-surface shadow-soft">
-          {dates.map((d, i) => {
+        {/* Compact week strip — day chips with kids/adults, today ringed green */}
+        <div className="mb-3 grid grid-cols-7 gap-1.5">
+          {dates.map((d) => {
+            const ds = ymd(d);
             const here = kidsFor(d);
+            const isToday = ds === todayStr;
+            const isSelected = ds === selectedDate;
             return (
-              <div
-                key={ymd(d)}
-                className={`flex items-center justify-between px-4 py-3 ${
-                  i === dates.length - 1 ? "" : "border-b border-border"
+              <button
+                key={ds}
+                onClick={() => setSelectedDate(ds)}
+                className={`flex flex-col items-center gap-0.5 rounded-xl border py-2 transition-colors ${
+                  isSelected
+                    ? "border-brand bg-brand-tint"
+                    : isToday
+                    ? "border-brand bg-surface"
+                    : "border-border bg-surface hover:bg-bg"
                 }`}
               >
-                <span className="text-[15px] text-ink">{weekdayLabel(d)}</span>
-                <button
-                  onClick={() => setOverrides((o) => ({ ...o, [ymd(d)]: !here }))}
-                  className={`min-h-[36px] rounded-lg px-3 text-[13px] font-medium transition-colors ${
-                    here ? "bg-brand-tint text-brand" : "bg-bg text-muted hover:text-ink"
+                <span className="text-[10px] font-medium uppercase text-muted">
+                  {d.toLocaleDateString("en-AU", { weekday: "short" }).slice(0, 1)}
+                </span>
+                <span
+                  className={`text-[16px] font-semibold leading-none ${
+                    isToday ? "text-brand" : "text-ink"
                   }`}
                 >
-                  {here ? "Kids here" : "Adults only"}
-                </button>
-              </div>
+                  {d.getDate()}
+                </span>
+                <span
+                  className={`mt-0.5 rounded px-1 text-[9px] font-bold ${
+                    here ? "bg-brand-tint text-brand" : "bg-bg text-faint"
+                  }`}
+                >
+                  {here ? "K" : "A"}
+                </span>
+              </button>
             );
           })}
+        </div>
+
+        {/* Focused day + its kids/adults toggle (works before & after planning) */}
+        {(() => {
+          const selD = new Date(selectedDate);
+          const here = overrides[selectedDate] ?? defaultKids(selD);
+          return (
+            <div className="mb-3 flex items-center justify-between rounded-card border border-border bg-surface px-4 py-2.5 shadow-soft">
+              <span className="text-[14px] font-semibold text-ink">
+                {weekdayLabel(selD)}
+              </span>
+              <button
+                onClick={() => toggleKids(selectedDate)}
+                className={`min-h-[34px] rounded-lg px-3 text-[13px] font-medium ${
+                  here ? "bg-brand-tint text-brand" : "bg-bg text-muted hover:text-ink"
+                }`}
+              >
+                {here ? "Kids here" : "Adults only"}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* Household settings (kids cycle + names) — tucked away, rarely touched */}
+        <div className="mb-4">
+          <button
+            onClick={() => setSettingsOpen((v) => !v)}
+            className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-[12px] font-medium text-muted hover:text-ink"
+          >
+            <span>Household settings (kids cycle, names)</span>
+            <ChevronRightIcon
+              className={`h-4 w-4 transition-transform ${settingsOpen ? "rotate-90" : ""}`}
+            />
+          </button>
+          {settingsOpen && (
+            <div className="mt-2 flex flex-col gap-1.5 rounded-card border border-border bg-surface p-4 shadow-soft">
+              <label htmlFor="anchor" className="text-[13px] font-medium text-ink">
+                Kids cycle start <span className="text-faint">(a Monday they arrive)</span>
+              </label>
+              <input
+                id="anchor"
+                type="date"
+                value={anchor ?? ""}
+                onChange={(e) => saveAnchor(e.target.value)}
+                className="min-h-tap w-full rounded-xl border border-border bg-surface px-3.5 text-[15px] text-ink focus:border-brand"
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {([1, 2] as const).map((slot) => (
+                  <input
+                    key={slot}
+                    value={names[slot - 1]}
+                    onChange={(e) => saveName(slot, e.target.value)}
+                    aria-label={`Child ${slot} name`}
+                    placeholder={`Child ${slot}`}
+                    className="min-h-[42px] w-full rounded-lg border border-border bg-surface px-3 text-[14px] text-ink focus:border-brand"
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <button
@@ -722,6 +794,7 @@ export function PlanClient({
           <div className="mt-4 space-y-3">
             {plan.map((day, i) => {
               const d = new Date(day.date);
+              if (day.date !== selectedDate) return null;
               return (
                 <div
                   key={day.date}
