@@ -143,6 +143,8 @@ export function PlanClient({
   const [suggestIndex, setSuggestIndex] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(ymd(new Date()));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // "week" = all days visible (while planning); "day" = focused day (once saved)
+  const [viewMode, setViewMode] = useState<"week" | "day">("day");
 
   async function saveName(slot: 1 | 2, value: string) {
     setNames((n) => (slot === 1 ? [value, n[1]] : [n[0], value]));
@@ -218,6 +220,7 @@ export function PlanClient({
       }));
       setPlan(mapped.length ? mapped : null);
       if (mapped.length) {
+        setViewMode("day"); // a saved plan opens in daily view
         const ov: Record<string, boolean> = {};
         mapped.forEach((m) => (ov[m.date] = m.kids_present));
         setOverrides((prev) => ({ ...ov, ...prev }));
@@ -333,6 +336,7 @@ export function PlanClient({
   async function generate() {
     setError(null);
     setSaved(false);
+    setViewMode("week"); // reviewing a fresh plan → show the whole week
     // Order: recipes that use soon-to-expire items first (cut waste), then push
     // recently-used dinners to the back (no week-to-week repeats), then favourites.
     const primaries = [...primaryRecipes].sort(
@@ -459,6 +463,7 @@ export function PlanClient({
     setLoading(true);
     setError(null);
     setSaved(false);
+    setViewMode("week"); // reviewing a fresh AI plan → show the whole week
     try {
       const days = dates.map((d) => ({ date: ymd(d), kids_present: kidsFor(d) }));
       const avoid = [...recentDinnerIds]
@@ -651,6 +656,7 @@ export function PlanClient({
       return;
     }
     setSaved(true);
+    setViewMode("day"); // saved → collapse to the day you're on
     loadUber();
   }
 
@@ -751,26 +757,28 @@ export function PlanClient({
           })}
         </div>
 
-        {/* Focused day + its kids/adults toggle (works before & after planning) */}
-        {(() => {
-          const selD = new Date(selectedDate);
-          const here = overrides[selectedDate] ?? defaultKids(selD);
-          return (
-            <div className="mb-3 flex items-center justify-between rounded-card border border-border bg-surface px-4 py-2.5 shadow-soft">
-              <span className="text-[14px] font-semibold text-ink">
-                {weekdayLabel(selD)}
-              </span>
-              <button
-                onClick={() => toggleKids(selectedDate)}
-                className={`min-h-[34px] rounded-lg px-3 text-[13px] font-medium ${
-                  here ? "bg-brand-tint text-brand" : "bg-bg text-muted hover:text-ink"
-                }`}
-              >
-                {here ? "Kids here" : "Adults only"}
-              </button>
-            </div>
-          );
-        })()}
+        {/* Before a plan exists: set the focused day's kids/adults (each day card
+            gets its own toggle once a plan is generated). */}
+        {!plan &&
+          (() => {
+            const selD = new Date(selectedDate);
+            const here = overrides[selectedDate] ?? defaultKids(selD);
+            return (
+              <div className="mb-3 flex items-center justify-between rounded-card border border-border bg-surface px-4 py-2.5 shadow-soft">
+                <span className="text-[14px] font-semibold text-ink">
+                  {weekdayLabel(selD)}
+                </span>
+                <button
+                  onClick={() => toggleKids(selectedDate)}
+                  className={`min-h-[34px] rounded-lg px-3 text-[13px] font-medium ${
+                    here ? "bg-brand-tint text-brand" : "bg-bg text-muted hover:text-ink"
+                  }`}
+                >
+                  {here ? "Kids here" : "Adults only"}
+                </button>
+              </div>
+            );
+          })()}
 
         {/* Household settings (kids cycle + names) — tucked away, rarely touched */}
         <div className="mb-4">
@@ -841,9 +849,24 @@ export function PlanClient({
         {/* Editable plan */}
         {plan && (
           <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[12px] text-muted">
+                {viewMode === "week"
+                  ? "Reviewing the whole week"
+                  : "Focused on one day"}
+              </span>
+              <button
+                onClick={() =>
+                  setViewMode(viewMode === "week" ? "day" : "week")
+                }
+                className="text-[12px] font-medium text-brand hover:underline"
+              >
+                {viewMode === "week" ? "Focus one day" : "View whole week"}
+              </button>
+            </div>
             {plan.map((day, i) => {
               const d = new Date(day.date);
-              if (day.date !== selectedDate) return null;
+              if (viewMode === "day" && day.date !== selectedDate) return null;
               return (
                 <div
                   key={day.date}
@@ -853,16 +876,28 @@ export function PlanClient({
                     <span className="text-[14px] font-semibold text-ink">
                       {weekdayLabel(d)}
                     </span>
-                    <button
-                      onClick={() => setDay(i, { away: !day.away })}
-                      className={`min-h-[32px] rounded-lg px-2.5 text-[12px] font-medium ${
-                        day.away
-                          ? "bg-amber-tint text-amber"
-                          : "bg-bg text-muted hover:text-ink"
-                      }`}
-                    >
-                      {day.away ? "Away — no meals" : "Mark away"}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => toggleKids(day.date)}
+                        className={`min-h-[32px] rounded-lg px-2.5 text-[12px] font-medium ${
+                          day.kids_present
+                            ? "bg-brand-tint text-brand"
+                            : "bg-bg text-muted hover:text-ink"
+                        }`}
+                      >
+                        {day.kids_present ? "Kids here" : "Adults only"}
+                      </button>
+                      <button
+                        onClick={() => setDay(i, { away: !day.away })}
+                        className={`min-h-[32px] rounded-lg px-2.5 text-[12px] font-medium ${
+                          day.away
+                            ? "bg-amber-tint text-amber"
+                            : "bg-bg text-muted hover:text-ink"
+                        }`}
+                      >
+                        {day.away ? "Away — no meals" : "Mark away"}
+                      </button>
+                    </div>
                   </div>
 
                   {day.away ? (
